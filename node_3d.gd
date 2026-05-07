@@ -1,6 +1,9 @@
 @tool
 extends Node3D
 
+const TerrainMaterialManagerScript = preload("res://terrain_material_manager.gd")
+const TerrainMeshBuilderScript = preload("res://terrain_mesh_builder.gd")
+
 enum GenerationMode { PREVIEW, FINAL }
 enum CollisionMode { DISABLED, FINAL_ONLY, ALL_BUILDS }
 enum ViewportQuality { FULL, HALF, QUARTER, EIGHTH }
@@ -9,10 +12,14 @@ enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS }
 
 const TERRAIN_CHUNKS_NAME := "TerrainChunks"
 const WATER_PLANE_NAME := "WaterPlane"
+const PREVIEW_LIGHT_NAME := "TerrainPreviewLight"
+const PREVIEW_ENVIRONMENT_NAME := "TerrainPreviewEnvironment"
 const LEGACY_TERRAIN_MESH_NAME := "TerrainMesh"
 const LEGACY_TERRAIN_BODY_NAME := "TerrainBody"
 const DEFAULT_GENERATED_RESOURCE_DIR := "res://generated_terrain"
 const LOD_STRIDES := [1, 2, 4, 8]
+const TERRAIN_ENCODING_V5_MASKS := TerrainMaterialManagerScript.TERRAIN_ENCODING_V5_MASKS
+const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENCODING_LEGACY_COLORS
 
 @export_category("Terrain Shape")
 
@@ -20,6 +27,7 @@ const LOD_STRIDES := [1, 2, 4, 8]
 @export_range(4.0, 512.0, 1.0) var terrain_size: float = 64.0:
 	set(value):
 		terrain_size = maxf(4.0, value)
+		_sync_auto_visible_radius()
 		_queue_regenerate()
 
 ## Final mesh detail per chunk. Use 256 with 16 chunks per side for a 4096 x 4096 total terrain grid.
@@ -46,6 +54,7 @@ const LOD_STRIDES := [1, 2, 4, 8]
 @export var seed: int = 1345:
 	set(value):
 		seed = value
+		_reset_visual_noise_textures()
 		_queue_regenerate()
 
 ## Size of the main noise features. Lower values make broad landforms; higher values make tighter, busier terrain.
@@ -79,14 +88,14 @@ const LOD_STRIDES := [1, 2, 4, 8]
 	set(value):
 		water_enabled = value
 		_update_water_plane()
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## World Y height of the water plane and shoreline color blend. Updates existing terrain colors without rebuilding chunks.
 @export_range(-64.0, 64.0, 0.1) var water_level: float = 0.0:
 	set(value):
 		water_level = value
 		_update_water_plane()
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color of the generated water plane.
 @export var water_color: Color = Color(0.09, 0.25, 0.36, 1.0):
@@ -104,49 +113,111 @@ const LOD_STRIDES := [1, 2, 4, 8]
 @export_range(-64.0, 64.0, 0.1) var snow_height: float = 5.0:
 	set(value):
 		snow_height = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## How steep terrain must be before it blends toward rock. Lower values create more exposed rock without rebuilding chunks.
 @export_range(0.0, 1.0, 0.01) var rock_slope_threshold: float = 0.44:
 	set(value):
 		rock_slope_threshold = clampf(value, 0.0, 1.0)
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color used for the lowest dry land before it blends into grass. Updates existing terrain colors without rebuilding chunks.
 @export var lowland_color: Color = Color(0.15, 0.21, 0.09):
 	set(value):
 		lowland_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Main green terrain color for rolling hills and flatter mid elevations. Updates existing terrain colors without rebuilding chunks.
 @export var grass_color: Color = Color(0.24, 0.33, 0.15):
 	set(value):
 		grass_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color blended into terrain near the water level. Updates existing terrain colors without rebuilding chunks.
 @export var shore_color: Color = Color(0.52, 0.48, 0.30):
 	set(value):
 		shore_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color blended onto terrain below the water level. Darker values make underwater areas read as seabed.
 @export var seabed_color: Color = Color(0.20, 0.17, 0.10):
 	set(value):
 		seabed_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color blended onto steep slopes. Updates existing terrain colors without rebuilding chunks.
 @export var rock_color: Color = Color(0.27, 0.24, 0.18):
 	set(value):
 		rock_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
 
 ## Color blended onto high elevations above Snow Height. Updates existing terrain colors without rebuilding chunks.
 @export var snow_color: Color = Color(0.86, 0.84, 0.76):
 	set(value):
 		snow_color = value
-		_queue_recolor_existing_chunks()
+		_queue_visual_update()
+
+@export_category("Visual Material")
+
+## Uses a procedural shader material for newly generated terrain. Existing V4 chunks remain visible, but regenerate once for full V5 mask-based visuals.
+@export var procedural_material_enabled: bool = true:
+	set(value):
+		procedural_material_enabled = value
+		_update_visual_materials()
+
+## Strength of broad color variation across the terrain surface. Higher values break up flat color bands.
+@export_range(0.0, 1.0, 0.01) var macro_variation_strength: float = 0.18:
+	set(value):
+		macro_variation_strength = clampf(value, 0.0, 1.0)
+		_update_visual_materials()
+
+## World-space scale of broad material variation. Lower values make larger patches; higher values make tighter variation.
+@export_range(0.001, 1.0, 0.001) var macro_variation_scale: float = 0.04:
+	set(value):
+		macro_variation_scale = maxf(0.001, value)
+		_update_visual_materials()
+
+## Strength of fine procedural noise on grass, shore, rock, and snow. Keep low for stable viewport performance.
+@export_range(0.0, 1.0, 0.01) var detail_noise_strength: float = 0.15:
+	set(value):
+		detail_noise_strength = clampf(value, 0.0, 1.0)
+		_update_visual_materials()
+
+## World-space scale of fine procedural detail. Higher values make smaller speckled detail.
+@export_range(0.01, 4.0, 0.01) var detail_noise_scale: float = 0.45:
+	set(value):
+		detail_noise_scale = maxf(0.01, value)
+		_update_visual_materials()
+
+## Extra procedural contrast on steep rock areas.
+@export_range(0.0, 1.0, 0.01) var rock_detail_strength: float = 0.25:
+	set(value):
+		rock_detail_strength = clampf(value, 0.0, 1.0)
+		_update_visual_materials()
+
+## Extra procedural contrast on snowy areas.
+@export_range(0.0, 1.0, 0.01) var snow_detail_strength: float = 0.08:
+	set(value):
+		snow_detail_strength = clampf(value, 0.0, 1.0)
+		_update_visual_materials()
+
+## Darkens terrain very close to the water level so shorelines read as damp sand or wet rock.
+@export_range(0.0, 1.0, 0.01) var shore_wetness_strength: float = 0.28:
+	set(value):
+		shore_wetness_strength = clampf(value, 0.0, 1.0)
+		_update_visual_materials()
+
+## Overall material brightness multiplier applied by the procedural terrain shader.
+@export_range(0.25, 2.0, 0.01) var material_brightness: float = 1.32:
+	set(value):
+		material_brightness = clampf(value, 0.25, 2.0)
+		_update_visual_materials()
+
+## Overall material contrast applied by the procedural terrain shader.
+@export_range(0.25, 2.0, 0.01) var material_contrast: float = 1.0:
+	set(value):
+		material_contrast = clampf(value, 0.25, 2.0)
+		_update_visual_materials()
 
 @export_category("Workflow")
 
@@ -221,10 +292,12 @@ const LOD_STRIDES := [1, 2, 4, 8]
 		viewport_culling_enabled = value
 		_apply_viewport_culling()
 
-## Chunk centers farther than this distance from Culling Center are hidden. Raise this or disable culling to show the full terrain.
+## Chunk centers farther than this distance from Culling Center are hidden. Auto-scales with Terrain Size until edited manually.
 @export_range(0.0, 1024.0, 0.1) var visible_radius: float = 48.0:
 	set(value):
 		visible_radius = maxf(0.0, value)
+		if not _setting_auto_visible_radius:
+			_visible_radius_auto_managed = false
 		_apply_viewport_culling()
 
 ## World X/Z point used as the center of viewport culling. Move it to inspect a different area of a large terrain.
@@ -333,9 +406,14 @@ const LOD_STRIDES := [1, 2, 4, 8]
 ## Saves existing generated chunk meshes and collision shapes to binary .res files to reduce the .tscn size.
 @export_tool_button("Save Mesh Resources") var save_mesh_resources_button = externalize_generated_resources
 
+## Creates or reuses a simple directional light and environment for inspecting generated terrain in the editor.
+@export_tool_button("Setup Preview Lighting") var setup_preview_lighting_button = setup_preview_lighting
+
 var _noise := FastNoiseLite.new()
-var _terrain_material: StandardMaterial3D
-var _water_material: StandardMaterial3D
+var _material_manager := TerrainMaterialManagerScript.new()
+var _mesh_builder := TerrainMeshBuilderScript.new()
+var _visible_radius_auto_managed := true
+var _setting_auto_visible_radius := false
 
 var _regeneration_queued := false
 var _queued_generation_mode := GenerationMode.PREVIEW
@@ -362,6 +440,8 @@ var _last_automatic_lod_focus := Vector2.INF
 
 func _ready() -> void:
 	set_process(false)
+	_sync_auto_visible_radius(false)
+	_update_visual_materials()
 	if final_terrain_locked and _has_generated_chunks():
 		_update_water_plane()
 		_update_automatic_lod_focus(true)
@@ -469,6 +549,36 @@ func externalize_generated_resources() -> void:
 		push_warning("Could not save generated terrain resources. Error code: %d" % save_error)
 
 
+func setup_preview_lighting() -> void:
+	var preview_light := get_node_or_null(PREVIEW_LIGHT_NAME) as DirectionalLight3D
+	if preview_light == null:
+		preview_light = DirectionalLight3D.new()
+		preview_light.name = PREVIEW_LIGHT_NAME
+		add_child(preview_light)
+		_set_scene_owner(preview_light)
+
+	preview_light.rotation_degrees = Vector3(-52.0, -34.0, 0.0)
+	preview_light.light_energy = 1.25
+	preview_light.shadow_enabled = true
+
+	var preview_environment := get_node_or_null(PREVIEW_ENVIRONMENT_NAME) as WorldEnvironment
+	if preview_environment == null:
+		preview_environment = WorldEnvironment.new()
+		preview_environment.name = PREVIEW_ENVIRONMENT_NAME
+		add_child(preview_environment)
+		_set_scene_owner(preview_environment)
+
+	var environment := preview_environment.environment
+	if environment == null:
+		environment = Environment.new()
+		preview_environment.environment = environment
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color(0.58, 0.64, 0.70)
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(0.68, 0.72, 0.76)
+	environment.ambient_light_energy = 0.55
+
+
 func _queue_regenerate(requested_mode: int = -1, manual: bool = false) -> void:
 	if final_terrain_locked:
 		return
@@ -501,6 +611,7 @@ func _start_generation(mode: int) -> void:
 	_cancel_recolor()
 	_configure_noise()
 	_remove_legacy_v1_nodes()
+	_update_visual_materials()
 	_update_water_plane()
 
 	var chunks_root := _get_or_create_chunks_root()
@@ -530,7 +641,7 @@ func _start_generation(mode: int) -> void:
 
 func _build_next_chunks() -> void:
 	var chunks_root := _get_or_create_chunks_root()
-	var material := _get_or_create_terrain_material()
+	var material := _get_material_for_encoding(_get_new_mesh_material_encoding())
 	var build_count := mini(_get_chunks_per_frame(), _pending_chunks.size())
 
 	for _build_index in build_count:
@@ -538,7 +649,8 @@ func _build_next_chunks() -> void:
 		var chunk_mesh_instance := _create_chunk_mesh_instance(chunk_coordinates.x, chunk_coordinates.y, material)
 		chunk_mesh_instance.mesh = _build_chunk_mesh(chunk_coordinates.x, chunk_coordinates.y, _active_display_stride)
 		chunks_root.add_child(chunk_mesh_instance)
-		_set_scene_owner(chunk_mesh_instance)
+		if _active_generation_mode == GenerationMode.FINAL:
+			_set_scene_owner(chunk_mesh_instance)
 
 		if _active_build_collision and _chunk_is_in_collision_coverage(chunk_mesh_instance):
 			_add_chunk_collision(chunk_mesh_instance, chunk_coordinates.x, chunk_coordinates.y)
@@ -558,6 +670,7 @@ func _build_next_chunks() -> void:
 				if save_error != OK:
 					push_warning("Could not save generated terrain resources. Error code: %d" % save_error)
 			final_terrain_locked = true
+			_assign_materials_to_existing_chunks()
 			_make_generated_nodes_scene_owned()
 		_update_processing_state()
 
@@ -565,80 +678,8 @@ func _build_next_chunks() -> void:
 
 
 func _build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirts: bool = false) -> ArrayMesh:
-	var local_grid_coordinates := _get_display_grid_coordinates(display_stride)
-	var vertices_per_side := local_grid_coordinates.size()
-	var vertex_total := vertices_per_side * vertices_per_side
-	var start_grid_x := chunk_x * _active_chunk_resolution
-	var start_grid_z := chunk_z * _active_chunk_resolution
-	var heights := PackedFloat32Array()
-	heights.resize(vertex_total)
-
-	for display_z in vertices_per_side:
-		for display_x in vertices_per_side:
-			var local_grid_x := local_grid_coordinates[display_x]
-			var local_grid_z := local_grid_coordinates[display_z]
-			var global_x := start_grid_x + local_grid_x
-			var global_z := start_grid_z + local_grid_z
-			var vertex_index := _vertex_index(display_x, display_z, vertices_per_side)
-			var world_x := float(global_x) * _active_step - _active_half_size
-			var world_z := float(global_z) * _active_step - _active_half_size
-			heights[vertex_index] = _sample_height(world_x, world_z)
-
-	var vertices := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var uvs := PackedVector2Array()
-	var colors := PackedColorArray()
-	vertices.resize(vertex_total)
-	normals.resize(vertex_total)
-	uvs.resize(vertex_total)
-	colors.resize(vertex_total)
-
-	for display_z in vertices_per_side:
-		for display_x in vertices_per_side:
-			var local_grid_x := local_grid_coordinates[display_x]
-			var local_grid_z := local_grid_coordinates[display_z]
-			var global_x := start_grid_x + local_grid_x
-			var global_z := start_grid_z + local_grid_z
-			var vertex_index := _vertex_index(display_x, display_z, vertices_per_side)
-			var world_x := float(global_x) * _active_step - _active_half_size
-			var world_z := float(global_z) * _active_step - _active_half_size
-			var height := heights[vertex_index]
-			var normal := _sample_cached_normal(display_x, display_z, vertices_per_side, heights, world_x, world_z, display_stride)
-
-			vertices[vertex_index] = Vector3(world_x, height, world_z)
-			normals[vertex_index] = normal
-			uvs[vertex_index] = Vector2(float(global_x) / float(_active_total_resolution), float(global_z) / float(_active_total_resolution))
-			colors[vertex_index] = _color_for_terrain(height, normal)
-
-	var indices := PackedInt32Array()
-	var display_quads_per_side := vertices_per_side - 1
-	indices.resize(display_quads_per_side * display_quads_per_side * 6)
-	var index_write_position := 0
-
-	for z in display_quads_per_side:
-		for x in display_quads_per_side:
-			var top_left := _vertex_index(x, z, vertices_per_side)
-			var top_right := _vertex_index(x + 1, z, vertices_per_side)
-			var bottom_left := _vertex_index(x, z + 1, vertices_per_side)
-			var bottom_right := _vertex_index(x + 1, z + 1, vertices_per_side)
-
-			index_write_position = _write_triangle(indices, index_write_position, top_left, top_right, bottom_left)
-			index_write_position = _write_triangle(indices, index_write_position, top_right, bottom_right, bottom_left)
-
-	if add_skirts:
-		_append_skirts(vertices, normals, uvs, colors, indices, vertices_per_side, _get_skirt_depth(display_stride))
-
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_COLOR] = colors
-	arrays[Mesh.ARRAY_INDEX] = indices
-
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
+	_configure_mesh_builder()
+	return _mesh_builder.build_chunk_mesh(chunk_x, chunk_z, display_stride, add_skirts)
 
 
 func _configure_noise() -> void:
@@ -651,62 +692,14 @@ func _configure_noise() -> void:
 	_noise.fractal_gain = gain
 
 
-func _sample_height(world_x: float, world_z: float) -> float:
-	return _noise.get_noise_2d(world_x, world_z) * height_scale
+func _new_meshes_use_v5_masks() -> bool:
+	return procedural_material_enabled
 
 
-func _sample_cached_normal(
-	local_x: int,
-	local_z: int,
-	vertices_per_side: int,
-	heights: PackedFloat32Array,
-	world_x: float,
-	world_z: float,
-	display_stride: int
-) -> Vector3:
-	var sample_distance := _active_step * float(display_stride)
-	var left_height := _get_cached_or_sampled_height(local_x - 1, local_z, vertices_per_side, heights, world_x - sample_distance, world_z)
-	var right_height := _get_cached_or_sampled_height(local_x + 1, local_z, vertices_per_side, heights, world_x + sample_distance, world_z)
-	var back_height := _get_cached_or_sampled_height(local_x, local_z - 1, vertices_per_side, heights, world_x, world_z - sample_distance)
-	var forward_height := _get_cached_or_sampled_height(local_x, local_z + 1, vertices_per_side, heights, world_x, world_z + sample_distance)
-	return Vector3(left_height - right_height, sample_distance * 2.0, back_height - forward_height).normalized()
-
-
-func _get_cached_or_sampled_height(
-	local_x: int,
-	local_z: int,
-	vertices_per_side: int,
-	heights: PackedFloat32Array,
-	world_x: float,
-	world_z: float
-) -> float:
-	if local_x >= 0 and local_x < vertices_per_side and local_z >= 0 and local_z < vertices_per_side:
-		return heights[_vertex_index(local_x, local_z, vertices_per_side)]
-	return _sample_height(world_x, world_z)
-
-
-func _color_for_terrain(height: float, normal: Vector3) -> Color:
-	var height_range := maxf(height_scale, 0.001)
-	var normalized_height := clampf((height / height_range + 1.0) * 0.5, 0.0, 1.0)
-	var color := lowland_color.lerp(grass_color, normalized_height)
-
-	if water_enabled:
-		var shore_width := maxf(height_scale * 0.10, 0.35)
-		if height < water_level:
-			var underwater_depth := water_level - height
-			var seabed_amount := _smoothstep(0.0, maxf(height_scale * 0.35, 0.75), underwater_depth)
-			color = shore_color.lerp(seabed_color, seabed_amount)
-		elif height < water_level + shore_width:
-			var dry_shore_amount := _smoothstep(0.0, shore_width, height - water_level)
-			color = shore_color.lerp(color, dry_shore_amount)
-
-	var slope := clampf(1.0 - normal.y, 0.0, 1.0)
-	var rock_amount := _smoothstep(rock_slope_threshold, minf(1.0, rock_slope_threshold + 0.25), slope)
-	color = color.lerp(rock_color, rock_amount)
-
-	var snow_blend_width := maxf(height_scale * 0.12, 0.35)
-	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height)
-	return color.lerp(snow_color, snow_amount)
+func _get_new_mesh_material_encoding() -> String:
+	if _new_meshes_use_v5_masks():
+		return TERRAIN_ENCODING_V5_MASKS
+	return TERRAIN_ENCODING_LEGACY_COLORS
 
 
 func _queue_recolor_existing_chunks() -> void:
@@ -724,6 +717,31 @@ func _queue_recolor_existing_chunks() -> void:
 	_update_processing_state()
 
 
+func _queue_visual_update() -> void:
+	_update_visual_materials()
+	_maybe_externalize_final_visual_resources()
+	if _all_existing_chunks_use_v5_masks():
+		return
+	_queue_recolor_existing_chunks()
+
+
+func _all_existing_chunks_use_v5_masks() -> bool:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return false
+
+	var found_chunk := false
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null:
+			continue
+		found_chunk = true
+		if not _chunk_uses_v5_masks(chunk):
+			return false
+
+	return found_chunk
+
+
 func _recolor_next_chunks() -> void:
 	var recolor_count := mini(_get_chunks_per_frame(), _pending_recolor_chunks.size())
 
@@ -739,6 +757,9 @@ func _recolor_next_chunks() -> void:
 func _recolor_chunk(chunk: MeshInstance3D) -> void:
 	if chunk == null or chunk.mesh == null or chunk.mesh.get_surface_count() == 0:
 		return
+	if _chunk_uses_v5_masks(chunk):
+		chunk.material_override = _get_material_for_chunk(chunk)
+		return
 
 	var mesh_resource_path := chunk.mesh.resource_path
 	var arrays: Array = chunk.mesh.surface_get_arrays(0)
@@ -747,8 +768,9 @@ func _recolor_chunk(chunk: MeshInstance3D) -> void:
 	var colors := PackedColorArray()
 	colors.resize(vertices.size())
 
+	_configure_mesh_builder()
 	for vertex_index in vertices.size():
-		colors[vertex_index] = _color_for_terrain(vertices[vertex_index].y, normals[vertex_index])
+		colors[vertex_index] = _mesh_builder.color_for_terrain(vertices[vertex_index].y, normals[vertex_index])
 
 	arrays[Mesh.ARRAY_COLOR] = colors
 
@@ -781,14 +803,6 @@ func _update_processing_state() -> void:
 	set_process(_is_generating or _is_recoloring or _is_generating_collision or _should_process_automatic_lod_focus())
 
 
-func _smoothstep(edge0: float, edge1: float, value: float) -> float:
-	if is_equal_approx(edge0, edge1):
-		return 0.0
-
-	var x := clampf((value - edge0) / (edge1 - edge0), 0.0, 1.0)
-	return x * x * (3.0 - 2.0 * x)
-
-
 func _get_chunk_resolution_for_mode(mode: int) -> int:
 	if mode == GenerationMode.FINAL:
 		return chunk_resolution
@@ -807,6 +821,30 @@ func _configure_active_generation_state(mode: int) -> void:
 	_active_total_resolution = _active_chunk_resolution * chunks_per_side
 	_active_step = terrain_size / float(_active_total_resolution)
 	_active_half_size = terrain_size * 0.5
+	_sync_auto_visible_radius(false)
+	_configure_mesh_builder()
+
+
+func _configure_mesh_builder() -> void:
+	_mesh_builder.configure({
+		"noise": _noise,
+		"active_chunk_resolution": _active_chunk_resolution,
+		"active_total_resolution": _active_total_resolution,
+		"active_step": _active_step,
+		"active_half_size": _active_half_size,
+		"height_scale": height_scale,
+		"water_enabled": water_enabled,
+		"water_level": water_level,
+		"snow_height": snow_height,
+		"rock_slope_threshold": rock_slope_threshold,
+		"lowland_color": lowland_color,
+		"grass_color": grass_color,
+		"shore_color": shore_color,
+		"seabed_color": seabed_color,
+		"rock_color": rock_color,
+		"snow_color": snow_color,
+		"use_v5_masks": _new_meshes_use_v5_masks(),
+	})
 
 
 func _get_chunks_per_frame() -> int:
@@ -821,6 +859,21 @@ func _get_chunks_per_frame() -> int:
 	if _active_chunk_resolution <= 128:
 		return 2
 	return 1
+
+
+func _sync_auto_visible_radius(apply_culling: bool = true) -> void:
+	if not _visible_radius_auto_managed:
+		return
+
+	var target_radius := terrain_size * 0.75
+	if is_equal_approx(visible_radius, target_radius):
+		return
+
+	_setting_auto_visible_radius = true
+	visible_radius = target_radius
+	_setting_auto_visible_radius = false
+	if apply_culling:
+		_apply_viewport_culling()
 
 
 func _should_build_collision(mode: int) -> bool:
@@ -843,23 +896,16 @@ func _save_generated_resources(save_lods: bool = true) -> int:
 	if directory_error != OK:
 		return directory_error
 
-	var terrain_material := _get_or_create_terrain_material()
-	var material_path := "%s/terrain_vertex_color_material.res" % resource_directory
-	var material_error := ResourceSaver.save(terrain_material, material_path)
+	var material_error := _save_visual_resources(resource_directory)
 	if material_error != OK:
 		return material_error
-
-	var saved_material := load(material_path) as StandardMaterial3D
-	if saved_material != null:
-		terrain_material = saved_material
-		_terrain_material = terrain_material
 
 	for child in chunks_root.get_children():
 		var chunk := child as MeshInstance3D
 		if chunk == null:
 			continue
 
-		chunk.material_override = terrain_material
+		chunk.material_override = _get_material_for_chunk(chunk)
 		if save_lods:
 			var coordinates := _get_chunk_coordinates(chunk)
 			var lod_error := _save_chunk_lod_resources(chunk, coordinates.x, coordinates.y)
@@ -887,6 +933,7 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 	if directory_error != OK:
 		return directory_error
 
+	chunk.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
 	for lod_index in LOD_STRIDES.size():
 		var stride: int = LOD_STRIDES[lod_index]
 		var lod_mesh := _build_chunk_mesh(chunk_x, chunk_z, stride, stride > 1)
@@ -939,19 +986,6 @@ func _get_viewport_display_stride() -> int:
 			return 8
 		_:
 			return 1
-
-
-func _get_display_grid_coordinates(display_stride: int) -> PackedInt32Array:
-	var stride := maxi(1, display_stride)
-	var coordinates := PackedInt32Array()
-	var grid_coordinate := 0
-
-	while grid_coordinate < _active_chunk_resolution:
-		coordinates.append(grid_coordinate)
-		grid_coordinate += stride
-
-	coordinates.append(_active_chunk_resolution)
-	return coordinates
 
 
 func _get_chunk_center(chunk_x: int, chunk_z: int) -> Vector2:
@@ -1281,86 +1315,6 @@ func _remove_water_plane() -> void:
 	water_plane.queue_free()
 
 
-func _vertex_index(x: int, z: int, vertices_per_side: int) -> int:
-	return z * vertices_per_side + x
-
-
-func _write_triangle(indices: PackedInt32Array, write_position: int, a: int, b: int, c: int) -> int:
-	indices[write_position] = a
-	indices[write_position + 1] = b
-	indices[write_position + 2] = c
-	return write_position + 3
-
-
-func _append_skirts(
-	vertices: PackedVector3Array,
-	normals: PackedVector3Array,
-	uvs: PackedVector2Array,
-	colors: PackedColorArray,
-	indices: PackedInt32Array,
-	vertices_per_side: int,
-	skirt_depth: float
-) -> void:
-	for x in vertices_per_side - 1:
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(x, 0, vertices_per_side), _vertex_index(x + 1, 0, vertices_per_side), skirt_depth)
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(x + 1, vertices_per_side - 1, vertices_per_side), _vertex_index(x, vertices_per_side - 1, vertices_per_side), skirt_depth)
-
-	for z in vertices_per_side - 1:
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(0, z + 1, vertices_per_side), _vertex_index(0, z, vertices_per_side), skirt_depth)
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(vertices_per_side - 1, z, vertices_per_side), _vertex_index(vertices_per_side - 1, z + 1, vertices_per_side), skirt_depth)
-
-
-func _append_skirt_segment(
-	vertices: PackedVector3Array,
-	normals: PackedVector3Array,
-	uvs: PackedVector2Array,
-	colors: PackedColorArray,
-	indices: PackedInt32Array,
-	top_a_index: int,
-	top_b_index: int,
-	skirt_depth: float
-) -> void:
-	var base_index := vertices.size()
-	var top_a := vertices[top_a_index]
-	var top_b := vertices[top_b_index]
-	var bottom_a := top_a + Vector3.DOWN * skirt_depth
-	var bottom_b := top_b + Vector3.DOWN * skirt_depth
-
-	vertices.append(top_a)
-	vertices.append(top_b)
-	vertices.append(bottom_a)
-	vertices.append(bottom_b)
-	normals.append(normals[top_a_index])
-	normals.append(normals[top_b_index])
-	normals.append(normals[top_a_index])
-	normals.append(normals[top_b_index])
-	uvs.append(uvs[top_a_index])
-	uvs.append(uvs[top_b_index])
-	uvs.append(uvs[top_a_index])
-	uvs.append(uvs[top_b_index])
-	colors.append(colors[top_a_index])
-	colors.append(colors[top_b_index])
-	colors.append(colors[top_a_index])
-	colors.append(colors[top_b_index])
-
-	indices.append(base_index)
-	indices.append(base_index + 2)
-	indices.append(base_index + 1)
-	indices.append(base_index + 1)
-	indices.append(base_index + 2)
-	indices.append(base_index + 3)
-	indices.append(base_index)
-	indices.append(base_index + 1)
-	indices.append(base_index + 2)
-	indices.append(base_index + 1)
-	indices.append(base_index + 3)
-	indices.append(base_index + 2)
-
-
-func _get_skirt_depth(display_stride: int) -> float:
-	return maxf(_active_step * float(maxi(1, display_stride)) * 2.0, maxf(height_scale * 0.05, 0.15))
-
-
 func _get_or_create_chunks_root() -> Node3D:
 	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME) as Node3D
 	if chunks_root == null:
@@ -1371,13 +1325,14 @@ func _get_or_create_chunks_root() -> Node3D:
 	return chunks_root
 
 
-func _create_chunk_mesh_instance(chunk_x: int, chunk_z: int, material: StandardMaterial3D) -> MeshInstance3D:
+func _create_chunk_mesh_instance(chunk_x: int, chunk_z: int, material: Material) -> MeshInstance3D:
 	var chunk_mesh_instance := MeshInstance3D.new()
 	chunk_mesh_instance.name = "TerrainChunk_%02d_%02d" % [chunk_x, chunk_z]
 	chunk_mesh_instance.material_override = material
 	chunk_mesh_instance.set_meta("terrain_chunk_center", _get_chunk_center(chunk_x, chunk_z))
 	chunk_mesh_instance.set_meta("terrain_chunk_x", chunk_x)
 	chunk_mesh_instance.set_meta("terrain_chunk_z", chunk_z)
+	chunk_mesh_instance.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
 	return chunk_mesh_instance
 
 
@@ -1450,22 +1405,97 @@ func _remove_legacy_v1_nodes() -> void:
 			legacy_node.queue_free()
 
 
-func _get_or_create_terrain_material() -> StandardMaterial3D:
-	if _terrain_material == null:
-		_terrain_material = StandardMaterial3D.new()
-		_terrain_material.vertex_color_use_as_albedo = true
-		_terrain_material.roughness = 0.9
-	return _terrain_material
+func _chunk_uses_v5_masks(chunk: MeshInstance3D) -> bool:
+	return str(chunk.get_meta("terrain_material_encoding", "")) == TERRAIN_ENCODING_V5_MASKS
 
 
-func _get_or_create_water_material() -> StandardMaterial3D:
-	if _water_material == null:
-		_water_material = StandardMaterial3D.new()
-		_water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_water_material.roughness = 0.18
-		_water_material.metallic = 0.0
+func _get_material_for_chunk(chunk: MeshInstance3D) -> Material:
+	return _material_manager.get_material_for_encoding(TERRAIN_ENCODING_V5_MASKS if _chunk_uses_v5_masks(chunk) else TERRAIN_ENCODING_LEGACY_COLORS)
 
-	var color := water_color
-	color.a = water_alpha
-	_water_material.albedo_color = color
-	return _water_material
+
+func _get_material_for_encoding(encoding: String) -> Material:
+	_configure_material_manager()
+	return _material_manager.get_material_for_encoding(encoding)
+
+
+func _update_visual_materials() -> void:
+	_configure_material_manager()
+	_material_manager.update_materials()
+	_assign_materials_to_existing_chunks()
+
+
+func _configure_material_manager() -> void:
+	_material_manager.configure({
+		"generated_resource_directory": _get_generated_resource_directory(),
+		"seed": seed,
+		"water_enabled": water_enabled,
+		"water_level": water_level,
+		"water_color": water_color,
+		"water_alpha": water_alpha,
+		"height_scale": height_scale,
+		"snow_height": snow_height,
+		"rock_slope_threshold": rock_slope_threshold,
+		"lowland_color": lowland_color,
+		"grass_color": grass_color,
+		"shore_color": shore_color,
+		"seabed_color": seabed_color,
+		"rock_color": rock_color,
+		"snow_color": snow_color,
+		"procedural_material_enabled": procedural_material_enabled,
+		"macro_variation_strength": macro_variation_strength,
+		"macro_variation_scale": macro_variation_scale,
+		"detail_noise_strength": detail_noise_strength,
+		"detail_noise_scale": detail_noise_scale,
+		"rock_detail_strength": rock_detail_strength,
+		"snow_detail_strength": snow_detail_strength,
+		"shore_wetness_strength": shore_wetness_strength,
+		"material_brightness": material_brightness,
+		"material_contrast": material_contrast,
+	})
+
+
+func _assign_materials_to_existing_chunks() -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null:
+			chunk.material_override = _get_material_for_chunk(chunk)
+
+
+func _maybe_externalize_final_visual_resources() -> void:
+	if _material_manager.is_saving() or not final_terrain_locked or not save_final_meshes_as_resources:
+		return
+	if not _has_generated_chunks():
+		return
+
+	var resource_directory := _get_generated_resource_directory()
+	var directory_error := DirAccess.make_dir_recursive_absolute(resource_directory)
+	if directory_error != OK:
+		push_warning("Could not create generated resource directory. Error code: %d" % directory_error)
+		return
+
+	var save_error := _save_visual_resources(resource_directory)
+	if save_error != OK:
+		push_warning("Could not save procedural visual resources. Error code: %d" % save_error)
+		return
+
+	_assign_materials_to_existing_chunks()
+	_update_water_plane()
+
+
+func _get_or_create_water_material() -> ShaderMaterial:
+	_configure_material_manager()
+	return _material_manager.get_water_material()
+
+
+func _reset_visual_noise_textures() -> void:
+	_material_manager.reset_noise_textures()
+	_update_visual_materials()
+
+
+func _save_visual_resources(resource_directory: String) -> int:
+	_configure_material_manager()
+	return _material_manager.save_visual_resources(resource_directory)

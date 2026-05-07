@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+### Changed
+
+- Split terrain mesh building into `terrain_mesh_builder.gd`.
+- Split procedural terrain and water material handling into `terrain_material_manager.gd`.
+- Kept `node_3d.gd` focused on editor workflow, generation orchestration, LOD, culling, collision, and scene ownership.
+
+## v5 - Procedural Visual Material Upgrade
+
+### Added
+
+- Procedural terrain shader for newly generated terrain.
+- V5 vertex mask encoding for height, slope, shore/seabed influence, and snow influence.
+- Generated procedural noise textures for terrain material variation.
+- Visual Material controls for macro variation, detail noise, rock detail, snow detail, shore wetness, brightness, and contrast.
+- Procedural water shader with subtle static color variation.
+- `Setup Preview Lighting` helper for editor inspection.
+- Saved visual resources: procedural terrain material, water material, shaders, and generated noise textures.
+
+### Changed
+
+- Newly generated terrain uses shader parameters for water, snow, rock, shore, seabed, and color tuning instead of rewriting mesh colors.
+- Water level and material tuning no longer regenerate or recolor V5 terrain chunks.
+- Existing V4 generated terrain remains visible through the legacy vertex-color material path.
+
+### Performance
+
+- V5 visual edits update material uniforms only, avoiding expensive mesh resource rewrites.
+- Procedural detail is static and lightweight by default.
+
 ## v4 - Editor LOD + Lightweight Collision
 
 ### Added

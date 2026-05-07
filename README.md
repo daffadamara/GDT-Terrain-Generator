@@ -1,14 +1,16 @@
 # GDT Terrain
 
-Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` scene. It generates chunked terrain from noise, supports high-resolution final builds, and includes water, vertex-color biomes, distance LOD, culling, and lightweight collision controls.
+Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` scene. It generates chunked terrain from noise, supports high-resolution final builds, and includes procedural terrain materials, water, distance LOD, culling, and lightweight collision controls.
 
 ## Features
 
 - Chunked static terrain generation with configurable terrain size, per-chunk resolution, and chunk count.
 - Fast preview mode and progressive final generation to keep the editor responsive.
 - Noise controls for seed, frequency, octaves, lacunarity, gain, and height scale.
-- Vertex-color terrain bands for seabed, shore, grass, lowland, rock, and snow.
-- Flat visual water plane with editable level, color, and transparency.
+- Procedural visual material using generated terrain masks and self-contained noise textures.
+- Editable seabed, shore, grass, lowland, rock, and snow colors without rebuilding V5 terrain.
+- Flat procedural water plane with editable level, color, transparency, and subtle static variation.
+- Legacy vertex-color fallback for older generated V4 chunks.
 - External binary `.res` mesh saving so large final terrain does not bloat the text scene.
 - Saved mesh LODs for final terrain:
   - LOD 0: full resolution
@@ -18,6 +20,7 @@ Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` 
 - Automatic camera or target-driven LOD focus.
 - Distance culling and LOD profile presets for viewport performance.
 - Progressive collision generation with coverage and quality controls.
+- Preview lighting helper for quick terrain inspection in the editor.
 
 ## Requirements
 
@@ -58,7 +61,7 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 
 ### Preview
 
-`Generate Preview` builds a lower-detail terrain for fast iteration. With `Auto Performance Settings` enabled, the preview resolution is chosen automatically.
+`Generate Preview` builds a lower-detail terrain for fast iteration. With `Auto Performance Settings` enabled, the preview resolution is chosen automatically. Preview chunks are editor-transient and are not saved into `node_3d.tscn`, which keeps the scene file small.
 
 ### Final
 
@@ -66,12 +69,28 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 
 - `final_terrain_locked` becomes `true`.
 - Generated chunk nodes are saved with the scene.
-- Mesh resources are saved to `generated_terrain/`.
+- Mesh, material, shader, and generated noise resources are saved to `generated_terrain/`.
 - Terrain will not regenerate from preview settings until `Clear Generated Terrain` is used.
 
 ### Editing Environment After Final
 
-Water, shoreline, seabed, snow, rock, and color changes update existing terrain colors without rebuilding geometry. Recolored final meshes are written back to their external `.res` files.
+Newly generated V5 terrain stores material masks in vertex colors and uses a procedural shader for final color. Water, shoreline, seabed, snow, rock, and visual material changes update shader parameters without rebuilding chunks or rewriting mesh resources.
+
+Older V4 terrain chunks remain visible through the legacy vertex-color material path. Regenerate terrain once to get the full V5 procedural material workflow.
+
+### Visual Material
+
+`Procedural Material Enabled` is on by default. It blends lowland, grass, shore, seabed, rock, and snow using baked height/slope masks plus generated noise textures.
+
+Useful controls:
+
+- `Macro Variation Strength` and `Macro Variation Scale` for broad natural color breakup.
+- `Detail Noise Strength` and `Detail Noise Scale` for fine surface variation.
+- `Rock Detail Strength` and `Snow Detail Strength` for material-specific contrast.
+- `Shore Wetness Strength` for darker damp shorelines near the water level.
+- `Material Brightness` and `Material Contrast` for final look tuning.
+
+Use `Setup Preview Lighting` to add a simple editor light and environment for inspecting the terrain material.
 
 ## Viewport LOD
 
@@ -125,7 +144,7 @@ Use `Generate Collision` after generating final terrain if you want physics with
 
 ## Generated Files
 
-`generated_terrain/` contains binary `.res` files for generated chunk meshes and LODs. These files can be large.
+`generated_terrain/` contains binary `.res` files for generated chunk meshes, LODs, collision shapes, procedural materials, shaders, and generated noise textures. These files can be large.
 
 For open-source distribution:
 
@@ -137,7 +156,9 @@ For open-source distribution:
 
 | Path | Purpose |
 | --- | --- |
-| `node_3d.gd` | Main procedural terrain generator script. |
+| `node_3d.gd` | Main editor-facing terrain generator script and Inspector workflow. |
+| `terrain_mesh_builder.gd` | Chunk mesh, LOD mesh, skirt, normal, and terrain mask generation. |
+| `terrain_material_manager.gd` | Procedural terrain/water shaders, materials, and generated noise resources. |
 | `node_3d.tscn` | Main Godot scene using the generator. |
 | `generated_terrain/` | Generated binary terrain mesh resources. |
 | `project.godot` | Godot project configuration. |
