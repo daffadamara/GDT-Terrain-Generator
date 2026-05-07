@@ -1,0 +1,17 @@
+# Godot local/editor data
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Generated terrain can be very large.
+# Keep it tracked only if you want to ship a ready-made sample terrain.
+# Consider Git LFS for generated_terrain/*.res.
