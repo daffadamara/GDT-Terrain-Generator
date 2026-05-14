@@ -110,7 +110,7 @@ Water is provided by a reusable `ProceduralWater3D` node. The terrain generator 
 
 Top-level water controls stay in the terrain `Environment` section for quick integration: `Water Enabled`, `Water Level`, `Water Color`, `Water Alpha`, `Auto Create Water`, and `Water Node Path`.
 
-Select the `WaterPlane` node directly for advanced water controls such as quality preset, wave strength, foam strength, refraction strength, shallow/mid/deep colors, wave directions, normal and foam tiling, depth fade, shoreline alpha fade, shoreline foam width, and mesh subdivisions. The default quality is `High Fidelity`; lower it to `Balanced` or `Lightweight` if the viewport needs more FPS.
+Select the `WaterPlane` node directly for advanced water controls such as quality preset, wave strength, foam strength, refraction strength, shallow/mid/deep colors, wave directions, normal and foam tiling, depth fade, shoreline alpha fade, shoreline foam width, and mesh subdivisions. The water shader renders as a one-sided surface to avoid transparent backface artifacts when animated waves are tall. The default quality is `High Fidelity`; lower it to `Balanced` or `Lightweight` if the viewport needs more FPS.
 
 Once a `ProceduralWater3D` node exists, it owns its visual water tuning. The terrain generator still syncs integration values such as enabled state, size, level, and resource directory, but it does not overwrite the water node's color, alpha, wave, foam, or subdivision settings on reload.
 

@@ -10,7 +10,7 @@ const WATER_NOISE_PATH := "water_noise.res"
 
 const WATER_SHADER_CODE := """
 shader_type spatial;
-render_mode blend_mix, depth_prepass_alpha, cull_disabled, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_prepass_alpha, cull_back, diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D water_noise_texture;
 uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear_mipmap;

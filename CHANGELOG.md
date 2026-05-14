@@ -10,6 +10,8 @@ All notable changes to this project are documented here.
 - `Terrain Source` controls for replacing procedural noise with an imported PNG heightmap.
 - Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, refraction controls, and water quality presets.
 - Improved water defaults with shallow/mid/deep blue depth coloring, linear-depth shoreline foam, shoreline alpha fade, larger foam tiling controls, and more visible top-down surface highlights.
+- Water now renders as a one-sided surface to prevent transparent backface tearing when waves are tall.
+- Replaced visible LOD edge curtains with surface stitching so reduced-detail chunks keep seamless full-detail borders without dark split-line artifacts.
 - Native Godot `.tres` terrain preset save/load workflow.
 - Heightmap export to grayscale PNG.
 
