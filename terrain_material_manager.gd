@@ -9,9 +9,6 @@ const TERRAIN_PROCEDURAL_MATERIAL_PATH := "terrain_procedural_material.res"
 const TERRAIN_LEGACY_MATERIAL_PATH := "terrain_vertex_color_material.res"
 const TERRAIN_MACRO_NOISE_PATH := "terrain_macro_noise.res"
 const TERRAIN_DETAIL_NOISE_PATH := "terrain_detail_noise.res"
-const WATER_PROCEDURAL_SHADER_PATH := "water_procedural_shader.res"
-const WATER_PROCEDURAL_MATERIAL_PATH := "water_procedural_material.res"
-const WATER_NOISE_PATH := "water_noise.res"
 
 const TERRAIN_SHADER_CODE := """
 shader_type spatial;
@@ -110,38 +107,10 @@ void fragment() {
 }
 """
 
-const WATER_SHADER_CODE := """
-shader_type spatial;
-render_mode blend_mix, depth_prepass_alpha, cull_disabled, diffuse_burley, specular_schlick_ggx;
-
-uniform sampler2D water_noise_texture;
-uniform vec4 water_color : source_color = vec4(0.09, 0.25, 0.36, 0.8);
-uniform float water_alpha = 0.8;
-uniform float water_noise_strength = 0.08;
-uniform float water_noise_scale = 0.18;
-
-varying vec3 world_position;
-
-void vertex() {
-	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-}
-
-void fragment() {
-	float noise_value = texture(water_noise_texture, world_position.xz * water_noise_scale).r * 2.0 - 1.0;
-	vec3 color = water_color.rgb * (1.0 + noise_value * water_noise_strength);
-	ALBEDO = clamp(color, vec3(0.0), vec3(1.0));
-	ALPHA = water_alpha;
-	ROUGHNESS = 0.22;
-	SPECULAR = 0.55;
-}
-"""
-
 var generated_resource_directory := "res://generated_terrain"
 var seed := 1345
 var water_enabled := true
 var water_level := 0.0
-var water_color := Color(0.09, 0.25, 0.36, 1.0)
-var water_alpha := 0.8
 var height_scale := 5.0
 var snow_height := 5.0
 var rock_slope_threshold := 0.44
@@ -165,12 +134,9 @@ var material_contrast := 1.0
 var _legacy_terrain_material: StandardMaterial3D
 var _procedural_terrain_material: ShaderMaterial
 var _simple_mask_terrain_material: ShaderMaterial
-var _water_material: ShaderMaterial
 var _terrain_shader: Shader
-var _water_shader: Shader
 var _terrain_macro_noise_texture: Texture2D
 var _terrain_detail_noise_texture: Texture2D
-var _water_noise_texture: Texture2D
 var _saving_visual_resources := false
 
 
@@ -179,8 +145,6 @@ func configure(settings: Dictionary) -> void:
 	seed = int(settings.get("seed", seed))
 	water_enabled = bool(settings.get("water_enabled", water_enabled))
 	water_level = float(settings.get("water_level", water_level))
-	water_color = settings.get("water_color", water_color) as Color
-	water_alpha = float(settings.get("water_alpha", water_alpha))
 	height_scale = float(settings.get("height_scale", height_scale))
 	snow_height = float(settings.get("snow_height", snow_height))
 	rock_slope_threshold = float(settings.get("rock_slope_threshold", rock_slope_threshold))
@@ -211,19 +175,13 @@ func get_material_for_encoding(encoding: String) -> Material:
 	return _get_or_create_legacy_terrain_material()
 
 
-func get_water_material() -> ShaderMaterial:
-	return _get_or_create_water_material()
-
-
 func update_materials() -> void:
 	_update_terrain_shader_parameters()
-	_update_water_shader_parameters()
 
 
 func reset_noise_textures() -> void:
 	_terrain_macro_noise_texture = null
 	_terrain_detail_noise_texture = null
-	_water_noise_texture = null
 	update_materials()
 
 
@@ -242,28 +200,15 @@ func save_visual_resources(resource_directory: String) -> int:
 	if detail_error != OK:
 		_saving_visual_resources = false
 		return detail_error
-	var water_noise_error := ResourceSaver.save(_get_or_create_water_noise_texture(), "%s/%s" % [resource_directory, WATER_NOISE_PATH])
-	if water_noise_error != OK:
-		_saving_visual_resources = false
-		return water_noise_error
-
 	var terrain_shader_error := ResourceSaver.save(_get_or_create_terrain_shader(), "%s/%s" % [resource_directory, TERRAIN_PROCEDURAL_SHADER_PATH])
 	if terrain_shader_error != OK:
 		_saving_visual_resources = false
 		return terrain_shader_error
-	var water_shader_error := ResourceSaver.save(_get_or_create_water_shader(), "%s/%s" % [resource_directory, WATER_PROCEDURAL_SHADER_PATH])
-	if water_shader_error != OK:
-		_saving_visual_resources = false
-		return water_shader_error
 
 	var terrain_material_error := ResourceSaver.save(_get_or_create_procedural_terrain_material(), "%s/%s" % [resource_directory, TERRAIN_PROCEDURAL_MATERIAL_PATH])
 	if terrain_material_error != OK:
 		_saving_visual_resources = false
 		return terrain_material_error
-	var water_material_error := ResourceSaver.save(_get_or_create_water_material(), "%s/%s" % [resource_directory, WATER_PROCEDURAL_MATERIAL_PATH])
-	if water_material_error != OK:
-		_saving_visual_resources = false
-		return water_material_error
 
 	var legacy_material_error := ResourceSaver.save(_get_or_create_legacy_terrain_material(), "%s/%s" % [resource_directory, TERRAIN_LEGACY_MATERIAL_PATH])
 	if legacy_material_error != OK:
@@ -308,16 +253,6 @@ func _get_or_create_simple_mask_terrain_material() -> ShaderMaterial:
 	return _simple_mask_terrain_material
 
 
-func _get_or_create_water_material() -> ShaderMaterial:
-	if _water_material == null:
-		_water_material = _load_external_shader_material(WATER_PROCEDURAL_MATERIAL_PATH)
-		if _water_material == null:
-			_water_material = ShaderMaterial.new()
-			_water_material.shader = _get_or_create_water_shader()
-	_update_water_shader_parameters()
-	return _water_material
-
-
 func _get_or_create_terrain_shader() -> Shader:
 	if _terrain_shader == null:
 		_terrain_shader = _load_external_shader(TERRAIN_PROCEDURAL_SHADER_PATH)
@@ -325,15 +260,6 @@ func _get_or_create_terrain_shader() -> Shader:
 			_terrain_shader = Shader.new()
 			_terrain_shader.code = TERRAIN_SHADER_CODE
 	return _terrain_shader
-
-
-func _get_or_create_water_shader() -> Shader:
-	if _water_shader == null:
-		_water_shader = _load_external_shader(WATER_PROCEDURAL_SHADER_PATH)
-		if _water_shader == null:
-			_water_shader = Shader.new()
-			_water_shader.code = WATER_SHADER_CODE
-	return _water_shader
 
 
 func _update_terrain_shader_parameters() -> void:
@@ -366,19 +292,6 @@ func _update_terrain_shader_parameters() -> void:
 		material.set_shader_parameter("material_contrast", material_contrast)
 
 
-func _update_water_shader_parameters() -> void:
-	if _water_material == null:
-		return
-	var color := water_color
-	color.a = water_alpha
-	_water_material.shader = _get_or_create_water_shader()
-	_water_material.set_shader_parameter("water_noise_texture", _get_or_create_water_noise_texture())
-	_water_material.set_shader_parameter("water_color", color)
-	_water_material.set_shader_parameter("water_alpha", water_alpha)
-	_water_material.set_shader_parameter("water_noise_strength", 0.08)
-	_water_material.set_shader_parameter("water_noise_scale", 0.18)
-
-
 func _get_or_create_terrain_macro_noise_texture() -> Texture2D:
 	if _terrain_macro_noise_texture == null:
 		_terrain_macro_noise_texture = _load_external_texture(TERRAIN_MACRO_NOISE_PATH)
@@ -393,14 +306,6 @@ func _get_or_create_terrain_detail_noise_texture() -> Texture2D:
 		if _terrain_detail_noise_texture == null:
 			_terrain_detail_noise_texture = _create_noise_texture(seed + 7919, 0.18, 256)
 	return _terrain_detail_noise_texture
-
-
-func _get_or_create_water_noise_texture() -> Texture2D:
-	if _water_noise_texture == null:
-		_water_noise_texture = _load_external_texture(WATER_NOISE_PATH)
-		if _water_noise_texture == null:
-			_water_noise_texture = _create_noise_texture(seed + 104729, 0.12, 128)
-	return _water_noise_texture
 
 
 func _create_noise_texture(noise_seed: int, texture_frequency: float, texture_size: int) -> ImageTexture:
@@ -457,10 +362,7 @@ func _load_external_texture(file_name: String) -> Texture2D:
 func _reload_saved_visual_resources() -> void:
 	_terrain_macro_noise_texture = _load_external_texture(TERRAIN_MACRO_NOISE_PATH)
 	_terrain_detail_noise_texture = _load_external_texture(TERRAIN_DETAIL_NOISE_PATH)
-	_water_noise_texture = _load_external_texture(WATER_NOISE_PATH)
 	_terrain_shader = _load_external_shader(TERRAIN_PROCEDURAL_SHADER_PATH)
-	_water_shader = _load_external_shader(WATER_PROCEDURAL_SHADER_PATH)
 	_procedural_terrain_material = _load_external_shader_material(TERRAIN_PROCEDURAL_MATERIAL_PATH)
-	_water_material = _load_external_shader_material(WATER_PROCEDURAL_MATERIAL_PATH)
 	_legacy_terrain_material = _load_external_legacy_terrain_material()
 	update_materials()

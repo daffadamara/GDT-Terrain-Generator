@@ -3,12 +3,17 @@ extends Node3D
 
 const TerrainMaterialManagerScript = preload("res://terrain_material_manager.gd")
 const TerrainMeshBuilderScript = preload("res://terrain_mesh_builder.gd")
+const TerrainHeightfieldScript = preload("res://terrain_heightfield.gd")
+const TerrainPresetScript = preload("res://terrain_preset.gd")
+const ProceduralWaterScript = preload("res://procedural_water_3d.gd")
 
 enum GenerationMode { PREVIEW, FINAL }
+enum SourceMode { NOISE, HEIGHTMAP }
 enum CollisionMode { DISABLED, FINAL_ONLY, ALL_BUILDS }
 enum ViewportQuality { FULL, HALF, QUARTER, EIGHTH }
 enum LodProfile { QUALITY, BALANCED, PERFORMANCE }
 enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS }
+enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION }
 
 const TERRAIN_CHUNKS_NAME := "TerrainChunks"
 const WATER_PLANE_NAME := "WaterPlane"
@@ -18,6 +23,7 @@ const LEGACY_TERRAIN_MESH_NAME := "TerrainMesh"
 const LEGACY_TERRAIN_BODY_NAME := "TerrainBody"
 const DEFAULT_GENERATED_RESOURCE_DIR := "res://generated_terrain"
 const LOD_STRIDES := [1, 2, 4, 8]
+const TERRAIN_LOD_EDGE_VERSION := 2
 const TERRAIN_ENCODING_V5_MASKS := TerrainMaterialManagerScript.TERRAIN_ENCODING_V5_MASKS
 const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENCODING_LEGACY_COLORS
 
@@ -28,24 +34,28 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(value):
 		terrain_size = maxf(4.0, value)
 		_sync_auto_visible_radius()
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Final mesh detail per chunk. Use 256 with 16 chunks per side for a 4096 x 4096 total terrain grid.
 @export_range(16, 256, 1) var chunk_resolution: int = 256:
 	set(value):
 		chunk_resolution = clampi(value, 16, 256)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Number of chunks along each side of the terrain. More chunks cover the same world size with more total detail.
 @export_range(1, 16, 1) var chunks_per_side: int = 1:
 	set(value):
 		chunks_per_side = clampi(value, 1, 16)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Vertical height multiplier for the terrain. Higher values create taller mountains and deeper valleys.
 @export_range(0.0, 64.0, 0.1) var height_scale: float = 5.0:
 	set(value):
 		height_scale = maxf(0.0, value)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 @export_category("Terrain Pattern")
@@ -54,6 +64,7 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 @export var seed: int = 1345:
 	set(value):
 		seed = value
+		_mark_heightfield_dirty()
 		_reset_visual_noise_textures()
 		_queue_regenerate()
 
@@ -61,24 +72,65 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 @export_range(0.001, 1.0, 0.001) var noise_frequency: float = 0.032:
 	set(value):
 		noise_frequency = maxf(0.001, value)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Number of layered noise passes. More octaves add finer detail, but increase generation time.
 @export_range(1, 12, 1) var octaves: int = 7:
 	set(value):
 		octaves = maxi(1, value)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Frequency jump between noise layers. Higher values make the added detail smaller and sharper.
 @export_range(1.0, 4.0, 0.01) var lacunarity: float = 2.1:
 	set(value):
 		lacunarity = maxf(1.0, value)
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Strength of each added noise layer. Lower values are smoother; higher values keep more rough detail.
 @export_range(0.0, 1.0, 0.01) var gain: float = 0.42:
 	set(value):
 		gain = clampf(value, 0.0, 1.0)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+@export_category("Terrain Source")
+
+## Chooses where terrain heights come from. Noise uses the procedural controls; Heightmap imports a 16-bit PNG and replaces noise shape data.
+@export_enum("Noise", "Heightmap") var source_mode: int = SourceMode.NOISE:
+	set(value):
+		source_mode = clampi(value, SourceMode.NOISE, SourceMode.HEIGHTMAP)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## 16-bit PNG heightmap used when Source Mode is Heightmap. The image is resampled to the current terrain grid.
+@export_file("*.png") var heightmap_path: String = "":
+	set(value):
+		heightmap_path = value
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Mirrors the imported heightmap along the terrain X axis.
+@export var heightmap_flip_x: bool = false:
+	set(value):
+		heightmap_flip_x = value
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Mirrors the imported heightmap along the terrain Z axis.
+@export var heightmap_flip_z: bool = false:
+	set(value):
+		heightmap_flip_z = value
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Inverts imported height values before applying Height Scale.
+@export var heightmap_invert: bool = false:
+	set(value):
+		heightmap_invert = value
+		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 @export_category("Environment")
@@ -97,8 +149,8 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 		_update_water_plane()
 		_queue_visual_update()
 
-## Color of the generated water plane.
-@export var water_color: Color = Color(0.09, 0.25, 0.36, 1.0):
+## Initial color used when the terrain generator creates a new water node. Existing ProceduralWater3D nodes keep their own water color.
+@export var water_color: Color = Color.html("2d7767"):
 	set(value):
 		water_color = value
 		_update_water_plane()
@@ -107,6 +159,18 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 @export_range(0.0, 1.0, 0.01) var water_alpha: float = 0.8:
 	set(value):
 		water_alpha = clampf(value, 0.0, 1.0)
+		_update_water_plane()
+
+## Automatically creates and configures a reusable ProceduralWater3D child named WaterPlane.
+@export var auto_create_water: bool = true:
+	set(value):
+		auto_create_water = value
+		_update_water_plane()
+
+## Optional ProceduralWater3D node to configure instead of the auto-created WaterPlane child.
+@export_node_path("Node3D") var water_node_path: NodePath:
+	set(value):
+		water_node_path = value
 		_update_water_plane()
 
 ## World Y height where terrain begins blending toward snow. Updates existing terrain colors without rebuilding chunks.
@@ -245,6 +309,25 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 ## Folder used for generated binary mesh and collision resources.
 @export var generated_resource_directory: String = DEFAULT_GENERATED_RESOURCE_DIR
 
+@export_category("Presets")
+
+## Path for saving or loading a native Godot terrain preset resource.
+@export_file("*.tres") var preset_path: String = "res://terrain_preset.tres"
+
+## Saves the current generator, visual, viewport, and collision settings to Preset Path.
+@export_tool_button("Save Preset") var save_preset_button = save_preset
+
+## Loads settings from Preset Path. Locked final terrain only receives non-geometry visual settings.
+@export_tool_button("Load Preset") var load_preset_button = load_preset
+
+@export_category("Heightmap I/O")
+
+## Path where Export Heightmap writes the current active heightfield as a 16-bit grayscale PNG.
+@export_file("*.png") var export_heightmap_path: String = "res://terrain_heightmap.png"
+
+## Exports the current active heightfield to Export Heightmap Path as a grayscale PNG.
+@export_tool_button("Export Heightmap") var export_heightmap_button = export_heightmap
+
 @export_category("Viewport Performance")
 
 ## Viewport-only visual detail. Lower quality draws fewer vertices and triangles, but does not change terrain settings.
@@ -359,6 +442,12 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(value):
 		collision_chunks_per_frame = clampi(value, 1, 16)
 
+## Utility command used by Run Selected Utility. These are less common maintenance actions kept out of the primary workflow buttons.
+@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
+
+## Runs the utility selected above.
+@export_tool_button("Run Selected Utility") var run_selected_utility_button = run_selected_utility
+
 @export_group("")
 @export_category("Generation Status")
 
@@ -383,7 +472,9 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(_value):
 		pass
 
-@export_category("Generation Actions")
+@export_category("Terrain Actions")
+
+@export_group("Build")
 
 ## Builds a fast, lower-detail terrain preview for tuning shape and noise settings.
 @export_tool_button("Generate Preview") var generate_preview_button = generate_preview_now
@@ -394,24 +485,21 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 ## Stops the current progressive build and leaves already generated chunks visible.
 @export_tool_button("Cancel Generation") var cancel_generation_button = cancel_generation
 
+@export_group("Reset")
+
 ## Removes generated terrain chunks, unlocks the terrain, and resets the generation progress counters.
 @export_tool_button("Clear Generated Terrain") var clear_terrain_button = clear_generated_terrain
 
-## Removes generated collision bodies without clearing visual terrain, water, colors, or the final-terrain lock.
-@export_tool_button("Remove Collision") var remove_collision_button = remove_generated_collision
-
-## Adds collision to the current generated terrain without rebuilding visual chunks. Useful after a final build is already locked.
-@export_tool_button("Generate Collision") var generate_collision_button = generate_collision_for_existing_terrain
-
-## Saves existing generated chunk meshes and collision shapes to binary .res files to reduce the .tscn size.
-@export_tool_button("Save Mesh Resources") var save_mesh_resources_button = externalize_generated_resources
-
-## Creates or reuses a simple directional light and environment for inspecting generated terrain in the editor.
-@export_tool_button("Setup Preview Lighting") var setup_preview_lighting_button = setup_preview_lighting
+@export_group("")
 
 var _noise := FastNoiseLite.new()
 var _material_manager := TerrainMaterialManagerScript.new()
 var _mesh_builder := TerrainMeshBuilderScript.new()
+var _source_heightfield := TerrainHeightfieldScript.new()
+var _active_heightfield := TerrainHeightfieldScript.new()
+var _heightfield_resolution := 0
+var _heightfield_dirty := true
+var _loading_preset := false
 var _visible_radius_auto_managed := true
 var _setting_auto_visible_radius := false
 
@@ -443,6 +531,9 @@ func _ready() -> void:
 	_sync_auto_visible_radius(false)
 	_update_visual_materials()
 	if final_terrain_locked and _has_generated_chunks():
+		_configure_noise()
+		_configure_active_generation_state(GenerationMode.FINAL)
+		_ensure_active_heightfield()
 		_update_water_plane()
 		_update_automatic_lod_focus(true)
 		_apply_viewport_culling()
@@ -521,6 +612,8 @@ func generate_collision_for_existing_terrain() -> void:
 
 	_configure_noise()
 	_configure_active_generation_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+	if not _ensure_active_heightfield():
+		return
 	_cancel_collision_generation()
 	_pending_collision_chunks = _get_collision_target_chunks()
 	if _pending_collision_chunks.is_empty():
@@ -537,6 +630,18 @@ func generate_collision_for_existing_terrain() -> void:
 	_is_generating_collision = true
 	_update_processing_state()
 	_build_next_collision_chunks()
+
+
+func run_selected_utility() -> void:
+	match selected_utility_action:
+		UtilityAction.SAVE_MESH_RESOURCES:
+			externalize_generated_resources()
+		UtilityAction.SETUP_PREVIEW_LIGHTING:
+			setup_preview_lighting()
+		UtilityAction.GENERATE_COLLISION:
+			generate_collision_for_existing_terrain()
+		UtilityAction.REMOVE_COLLISION:
+			remove_generated_collision()
 
 
 func externalize_generated_resources() -> void:
@@ -579,7 +684,64 @@ func setup_preview_lighting() -> void:
 	environment.ambient_light_energy = 0.55
 
 
+func save_preset() -> void:
+	var normalized_path := _normalize_resource_path(preset_path, "terrain_preset.tres")
+	var preset := TerrainPresetScript.new()
+	_write_settings_to_preset(preset)
+	var directory_error := DirAccess.make_dir_recursive_absolute(normalized_path.get_base_dir())
+	if directory_error != OK:
+		push_warning("Could not create preset directory. Error code: %d" % directory_error)
+		return
+	var save_error := ResourceSaver.save(preset, normalized_path)
+	if save_error != OK:
+		push_warning("Could not save terrain preset. Error code: %d" % save_error)
+
+
+func load_preset() -> void:
+	var normalized_path := _normalize_resource_path(preset_path, "terrain_preset.tres")
+	var preset := ResourceLoader.load(normalized_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+	if preset == null or preset.get_script() != TerrainPresetScript:
+		push_warning("Could not load terrain preset at %s." % normalized_path)
+		return
+
+	_loading_preset = true
+	if final_terrain_locked:
+		_apply_visual_preset_settings(preset)
+		push_warning("Final terrain is locked. Loaded visual/environment preset settings only; clear terrain before applying shape/source changes.")
+	else:
+		_apply_full_preset_settings(preset)
+		_mark_heightfield_dirty()
+	_loading_preset = false
+
+	_update_water_plane()
+	_update_visual_materials()
+	if final_terrain_locked:
+		return
+	_queue_regenerate(GenerationMode.PREVIEW, true)
+
+
+func export_heightmap() -> void:
+	var normalized_path := _normalize_resource_path(export_heightmap_path, "terrain_heightmap.png")
+	_configure_noise()
+	_configure_active_generation_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+	if not _ensure_active_heightfield():
+		push_warning("No active heightfield is available to export.")
+		return
+
+	if FileAccess.file_exists(normalized_path):
+		push_warning("Export Heightmap will overwrite %s." % normalized_path)
+	var directory_error := DirAccess.make_dir_recursive_absolute(normalized_path.get_base_dir())
+	if directory_error != OK:
+		push_warning("Could not create heightmap export directory. Error code: %d" % directory_error)
+		return
+	var save_error := _active_heightfield.export_png(normalized_path)
+	if save_error != OK:
+		push_warning("Could not export heightmap. Error code: %d" % save_error)
+
+
 func _queue_regenerate(requested_mode: int = -1, manual: bool = false) -> void:
+	if _loading_preset:
+		return
 	if final_terrain_locked:
 		return
 	if not manual and not auto_update:
@@ -620,6 +782,9 @@ func _start_generation(mode: int) -> void:
 		child.queue_free()
 
 	_configure_active_generation_state(mode)
+	if not _ensure_active_heightfield():
+		_update_processing_state()
+		return
 	_active_build_collision = _should_build_collision(mode)
 	_active_display_stride = _get_viewport_display_stride()
 
@@ -690,6 +855,55 @@ func _configure_noise() -> void:
 	_noise.fractal_octaves = octaves
 	_noise.fractal_lacunarity = lacunarity
 	_noise.fractal_gain = gain
+
+
+func _mark_heightfield_dirty() -> void:
+	_heightfield_dirty = true
+
+
+func _target_heightfield_resolution() -> int:
+	if _active_generation_mode == GenerationMode.FINAL or source_mode == SourceMode.HEIGHTMAP:
+		return chunk_resolution * chunks_per_side
+	return _active_total_resolution
+
+
+func _ensure_active_heightfield() -> bool:
+	var target_resolution := _target_heightfield_resolution()
+	if _active_heightfield.is_valid() and not _heightfield_dirty and _heightfield_resolution == target_resolution:
+		return true
+	if not _build_source_heightfield(target_resolution):
+		return false
+	_active_heightfield.copy_from(_source_heightfield)
+	_heightfield_dirty = false
+	_heightfield_resolution = target_resolution
+	return true
+
+
+func _build_source_heightfield(total_resolution: int) -> bool:
+	total_resolution = maxi(1, total_resolution)
+	if source_mode == SourceMode.HEIGHTMAP:
+		var image := _load_heightmap_image()
+		if image == null:
+			_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise)
+			push_warning("Heightmap could not be loaded. Falling back to procedural noise.")
+			return true
+		if image.get_width() != total_resolution + 1 or image.get_height() != total_resolution + 1:
+			push_warning("Heightmap dimensions %dx%d are being resampled to %dx%d." % [image.get_width(), image.get_height(), total_resolution + 1, total_resolution + 1])
+		_source_heightfield.create_from_image(total_resolution, terrain_size, height_scale, image, heightmap_flip_x, heightmap_flip_z, heightmap_invert)
+		return true
+
+	_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise)
+	return true
+
+
+func _load_heightmap_image() -> Image:
+	var normalized_path := heightmap_path.strip_edges()
+	if normalized_path.is_empty():
+		return null
+	var image := Image.load_from_file(normalized_path)
+	if image == null or image.is_empty():
+		return null
+	return image
 
 
 func _new_meshes_use_v5_masks() -> bool:
@@ -828,6 +1042,7 @@ func _configure_active_generation_state(mode: int) -> void:
 func _configure_mesh_builder() -> void:
 	_mesh_builder.configure({
 		"noise": _noise,
+		"heightfield": _active_heightfield,
 		"active_chunk_resolution": _active_chunk_resolution,
 		"active_total_resolution": _active_total_resolution,
 		"active_step": _active_step,
@@ -891,6 +1106,8 @@ func _save_generated_resources(save_lods: bool = true) -> int:
 
 	_configure_noise()
 	_configure_active_generation_state(GenerationMode.FINAL)
+	if not _ensure_active_heightfield():
+		return ERR_UNCONFIGURED
 	var resource_directory := _get_generated_resource_directory()
 	var directory_error := DirAccess.make_dir_recursive_absolute(resource_directory)
 	if directory_error != OK:
@@ -937,6 +1154,7 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 	for lod_index in LOD_STRIDES.size():
 		var stride: int = LOD_STRIDES[lod_index]
 		var lod_mesh := _build_chunk_mesh(chunk_x, chunk_z, stride, stride > 1)
+		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
 		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index)
 		var mesh_error := ResourceSaver.save(lod_mesh, mesh_path)
 		if mesh_error != OK:
@@ -974,6 +1192,123 @@ func _get_generated_resource_directory() -> String:
 	while resource_directory.ends_with("/") and resource_directory.length() > "res://".length():
 		resource_directory = resource_directory.trim_suffix("/")
 	return resource_directory
+
+
+func _normalize_resource_path(path: String, fallback_file_name: String) -> String:
+	var normalized_path := path.strip_edges()
+	if normalized_path.is_empty():
+		normalized_path = "res://%s" % fallback_file_name
+	if normalized_path.begins_with("res://") or normalized_path.begins_with("user://") or normalized_path.is_absolute_path():
+		return normalized_path
+	if not normalized_path.begins_with("res://") and not normalized_path.begins_with("user://"):
+		normalized_path = "res://%s" % normalized_path.trim_prefix("/")
+	return normalized_path
+
+
+func _write_settings_to_preset(preset: Resource) -> void:
+	preset.terrain_size = terrain_size
+	preset.chunk_resolution = chunk_resolution
+	preset.chunks_per_side = chunks_per_side
+	preset.height_scale = height_scale
+	preset.source_mode = source_mode
+	preset.heightmap_path = heightmap_path
+	preset.heightmap_flip_x = heightmap_flip_x
+	preset.heightmap_flip_z = heightmap_flip_z
+	preset.heightmap_invert = heightmap_invert
+	preset.seed = seed
+	preset.noise_frequency = noise_frequency
+	preset.octaves = octaves
+	preset.lacunarity = lacunarity
+	preset.gain = gain
+	preset.water_enabled = water_enabled
+	preset.water_level = water_level
+	preset.water_color = water_color
+	preset.water_alpha = water_alpha
+	preset.auto_create_water = auto_create_water
+	preset.snow_height = snow_height
+	preset.rock_slope_threshold = rock_slope_threshold
+	preset.lowland_color = lowland_color
+	preset.grass_color = grass_color
+	preset.shore_color = shore_color
+	preset.seabed_color = seabed_color
+	preset.rock_color = rock_color
+	preset.snow_color = snow_color
+	preset.procedural_material_enabled = procedural_material_enabled
+	preset.macro_variation_strength = macro_variation_strength
+	preset.macro_variation_scale = macro_variation_scale
+	preset.detail_noise_strength = detail_noise_strength
+	preset.detail_noise_scale = detail_noise_scale
+	preset.rock_detail_strength = rock_detail_strength
+	preset.snow_detail_strength = snow_detail_strength
+	preset.shore_wetness_strength = shore_wetness_strength
+	preset.material_brightness = material_brightness
+	preset.material_contrast = material_contrast
+	preset.viewport_quality = viewport_quality
+	preset.viewport_lod_enabled = viewport_lod_enabled
+	preset.lod_profile = lod_profile
+	preset.automatic_lod_focus = automatic_lod_focus
+	preset.visible_radius = visible_radius
+	preset.viewport_culling_enabled = viewport_culling_enabled
+	preset.collision_mode = collision_mode
+	preset.collision_coverage = collision_coverage
+	preset.collision_quality = collision_quality
+	preset.collision_radius = collision_radius
+	preset.collision_chunks_per_frame = collision_chunks_per_frame
+
+
+func _apply_full_preset_settings(preset: Resource) -> void:
+	terrain_size = preset.terrain_size
+	chunk_resolution = preset.chunk_resolution
+	chunks_per_side = preset.chunks_per_side
+	height_scale = preset.height_scale
+	source_mode = preset.source_mode
+	heightmap_path = preset.heightmap_path
+	heightmap_flip_x = preset.heightmap_flip_x
+	heightmap_flip_z = preset.heightmap_flip_z
+	heightmap_invert = preset.heightmap_invert
+	seed = preset.seed
+	noise_frequency = preset.noise_frequency
+	octaves = preset.octaves
+	lacunarity = preset.lacunarity
+	gain = preset.gain
+	_apply_visual_preset_settings(preset)
+	viewport_quality = preset.viewport_quality
+	viewport_lod_enabled = preset.viewport_lod_enabled
+	lod_profile = preset.lod_profile
+	automatic_lod_focus = preset.automatic_lod_focus
+	visible_radius = preset.visible_radius
+	viewport_culling_enabled = preset.viewport_culling_enabled
+	collision_mode = preset.collision_mode
+	collision_coverage = preset.collision_coverage
+	collision_quality = preset.collision_quality
+	collision_radius = preset.collision_radius
+	collision_chunks_per_frame = preset.collision_chunks_per_frame
+
+
+func _apply_visual_preset_settings(preset: Resource) -> void:
+	water_enabled = preset.water_enabled
+	water_level = preset.water_level
+	water_color = preset.water_color
+	water_alpha = preset.water_alpha
+	auto_create_water = preset.auto_create_water
+	snow_height = preset.snow_height
+	rock_slope_threshold = preset.rock_slope_threshold
+	lowland_color = preset.lowland_color
+	grass_color = preset.grass_color
+	shore_color = preset.shore_color
+	seabed_color = preset.seabed_color
+	rock_color = preset.rock_color
+	snow_color = preset.snow_color
+	procedural_material_enabled = preset.procedural_material_enabled
+	macro_variation_strength = preset.macro_variation_strength
+	macro_variation_scale = preset.macro_variation_scale
+	detail_noise_strength = preset.detail_noise_strength
+	detail_noise_scale = preset.detail_noise_scale
+	rock_detail_strength = preset.rock_detail_strength
+	snow_detail_strength = preset.snow_detail_strength
+	shore_wetness_strength = preset.shore_wetness_strength
+	material_brightness = preset.material_brightness
+	material_contrast = preset.material_contrast
 
 
 func _get_viewport_display_stride() -> int:
@@ -1121,7 +1456,7 @@ func _get_viewport_quality_lod_index() -> int:
 
 func _set_chunk_lod(chunk: MeshInstance3D, lod_index: int) -> void:
 	lod_index = clampi(lod_index, ViewportQuality.FULL, ViewportQuality.EIGHTH)
-	if int(chunk.get_meta("terrain_current_lod", -1)) == lod_index:
+	if int(chunk.get_meta("terrain_current_lod", -1)) == lod_index and not _chunk_lod_mesh_needs_rebuild(chunk, lod_index):
 		return
 
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
@@ -1133,9 +1468,34 @@ func _set_chunk_lod(chunk: MeshInstance3D, lod_index: int) -> void:
 	var lod_mesh := load(mesh_path) as ArrayMesh
 	if lod_mesh == null:
 		return
+	if lod_index > 0 and int(lod_mesh.get_meta("terrain_lod_edge_version", 0)) < TERRAIN_LOD_EDGE_VERSION:
+		lod_mesh = _rebuild_chunk_lod_mesh(chunk, lod_index, mesh_path)
+		if lod_mesh == null:
+			return
 
 	chunk.mesh = lod_mesh
 	chunk.set_meta("terrain_current_lod", lod_index)
+
+
+func _chunk_lod_mesh_needs_rebuild(chunk: MeshInstance3D, lod_index: int) -> bool:
+	if lod_index <= 0:
+		return false
+	var lod_mesh := chunk.mesh as ArrayMesh
+	return lod_mesh != null and int(lod_mesh.get_meta("terrain_lod_edge_version", 0)) < TERRAIN_LOD_EDGE_VERSION
+
+
+func _rebuild_chunk_lod_mesh(chunk: MeshInstance3D, lod_index: int, mesh_path: String) -> ArrayMesh:
+	_configure_noise()
+	_configure_active_generation_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+	if not _ensure_active_heightfield():
+		return null
+	var coordinates := _get_chunk_coordinates(chunk)
+	var stride: int = LOD_STRIDES[clampi(lod_index, ViewportQuality.FULL, ViewportQuality.EIGHTH)]
+	var rebuilt_mesh := _build_chunk_mesh(coordinates.x, coordinates.y, stride, stride > 1)
+	rebuilt_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
+	if not mesh_path.is_empty():
+		ResourceSaver.save(rebuilt_mesh, mesh_path)
+	return rebuilt_mesh
 
 
 func _apply_collision_visual_visibility() -> void:
@@ -1288,31 +1648,67 @@ func _get_scene_owner() -> Node:
 func _update_water_plane() -> void:
 	if not is_inside_tree():
 		return
-	if not water_enabled:
+	if water_enabled and water_node_path.is_empty() and not auto_create_water:
 		_remove_water_plane()
 		return
+	if not water_enabled:
+		_remove_water_plane()
+		var disabled_water_node: Node = _get_water_node(false)
+		if disabled_water_node != null:
+			disabled_water_node.call("configure_from_terrain", {
+				"water_enabled": false,
+				"water_size": terrain_size,
+				"water_level": water_level,
+				"generated_resource_directory": _get_generated_resource_directory(),
+			})
+		return
 
-	var water_plane := get_node_or_null(WATER_PLANE_NAME) as MeshInstance3D
+	var water_plane: Node = _get_water_node(true)
 	if water_plane == null:
-		water_plane = MeshInstance3D.new()
-		water_plane.name = WATER_PLANE_NAME
-		add_child(water_plane)
-		_set_scene_owner(water_plane)
-
-	var water_mesh := PlaneMesh.new()
-	water_mesh.size = Vector2(terrain_size, terrain_size)
-	water_plane.mesh = water_mesh
-	water_plane.position = Vector3(0.0, water_level, 0.0)
-	water_plane.material_override = _get_or_create_water_material()
+		return
+	water_plane.call("configure_from_terrain", {
+		"water_enabled": water_enabled,
+		"water_size": terrain_size,
+		"water_level": water_level,
+		"generated_resource_directory": _get_generated_resource_directory(),
+	})
 
 
 func _remove_water_plane() -> void:
+	if not water_node_path.is_empty():
+		return
 	var water_plane := get_node_or_null(WATER_PLANE_NAME)
 	if water_plane == null:
 		return
 
 	remove_child(water_plane)
 	water_plane.queue_free()
+
+
+func _get_water_node(create_if_missing: bool):
+	if not water_node_path.is_empty():
+		var configured_water_node := get_node_or_null(water_node_path)
+		if configured_water_node != null and configured_water_node.get_script() == ProceduralWaterScript:
+			return configured_water_node
+		return null
+	if not auto_create_water:
+		return null
+
+	var water_plane := get_node_or_null(WATER_PLANE_NAME)
+	if water_plane != null and water_plane.get_script() != ProceduralWaterScript:
+		remove_child(water_plane)
+		water_plane.queue_free()
+		water_plane = null
+
+	if water_plane == null and create_if_missing:
+		water_plane = ProceduralWaterScript.new()
+		water_plane.name = WATER_PLANE_NAME
+		water_plane.water_color = water_color
+		water_plane.water_alpha = water_alpha
+		water_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(water_plane)
+		_set_scene_owner(water_plane)
+	return water_plane
 
 
 func _get_or_create_chunks_root() -> Node3D:
@@ -1430,8 +1826,6 @@ func _configure_material_manager() -> void:
 		"seed": seed,
 		"water_enabled": water_enabled,
 		"water_level": water_level,
-		"water_color": water_color,
-		"water_alpha": water_alpha,
 		"height_scale": height_scale,
 		"snow_height": snow_height,
 		"rock_slope_threshold": rock_slope_threshold,
@@ -1486,11 +1880,6 @@ func _maybe_externalize_final_visual_resources() -> void:
 	_update_water_plane()
 
 
-func _get_or_create_water_material() -> ShaderMaterial:
-	_configure_material_manager()
-	return _material_manager.get_water_material()
-
-
 func _reset_visual_noise_textures() -> void:
 	_material_manager.reset_noise_textures()
 	_update_visual_materials()
@@ -1498,4 +1887,10 @@ func _reset_visual_noise_textures() -> void:
 
 func _save_visual_resources(resource_directory: String) -> int:
 	_configure_material_manager()
-	return _material_manager.save_visual_resources(resource_directory)
+	var terrain_material_error: int = _material_manager.save_visual_resources(resource_directory)
+	if terrain_material_error != OK:
+		return terrain_material_error
+	var water_plane: Node = _get_water_node(false)
+	if water_plane == null:
+		return OK
+	return int(water_plane.call("save_visual_resources", resource_directory))

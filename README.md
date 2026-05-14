@@ -7,9 +7,12 @@ Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` 
 - Chunked static terrain generation with configurable terrain size, per-chunk resolution, and chunk count.
 - Fast preview mode and progressive final generation to keep the editor responsive.
 - Noise controls for seed, frequency, octaves, lacunarity, gain, and height scale.
+- Shared heightfield pipeline with noise or imported 16-bit PNG heightmaps.
+- Native Godot `.tres` terrain presets for saving and loading styles/settings.
+- Heightmap export to grayscale PNG.
 - Procedural visual material using generated terrain masks and self-contained noise textures.
 - Editable seabed, shore, grass, lowland, rock, and snow colors without rebuilding V5 terrain.
-- Flat procedural water plane with editable level, color, transparency, and subtle static variation.
+- Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, and optional refraction.
 - Legacy vertex-color fallback for older generated V4 chunks.
 - External binary `.res` mesh saving so large final terrain does not bloat the text scene.
 - Saved mesh LODs for final terrain:
@@ -72,11 +75,44 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 - Mesh, material, shader, and generated noise resources are saved to `generated_terrain/`.
 - Terrain will not regenerate from preview settings until `Clear Generated Terrain` is used.
 
+### Terrain Source
+
+`Source Mode` chooses the height source:
+
+- `Noise` uses the procedural noise controls.
+- `Heightmap` imports a PNG heightmap and resamples it to the active terrain grid.
+
+Heightmap import replaces procedural noise shape data. `Height Scale` still controls the vertical amplitude, and imported values are mapped into the terrain height range. Flip and invert controls help match heightmaps from third-party terrain tools.
+
+### Presets
+
+`Save Preset` writes generator, terrain source, environment, material, viewport, and collision settings to a native Godot `.tres` resource. Presets do not include generated chunks or mesh resources.
+
+`Load Preset` applies the saved settings. If final terrain is locked, only non-geometry visual/environment settings are applied; clear the terrain before loading shape/source changes.
+
+Preset actions live beside `Preset Path` in the Inspector so file workflow stays separate from terrain generation.
+
+### Heightmap I/O
+
+`Export Heightmap` writes the current active heightfield to `Export Heightmap Path` as a grayscale PNG.
+
+The main terrain actions are grouped under `Terrain Actions`: generate a preview, generate a locked final terrain, cancel a running build, or clear generated terrain. Less common maintenance commands use `Selected Utility` plus `Run Selected Utility` under the advanced controls.
+
 ### Editing Environment After Final
 
-Newly generated V5 terrain stores material masks in vertex colors and uses a procedural shader for final color. Water, shoreline, seabed, snow, rock, and visual material changes update shader parameters without rebuilding chunks or rewriting mesh resources.
+Newly generated V5 terrain stores material masks in vertex colors and uses a procedural shader for final color. Water level, shoreline, seabed, snow, rock, and visual material changes update shader parameters without rebuilding chunks or rewriting mesh resources.
 
 Older V4 terrain chunks remain visible through the legacy vertex-color material path. Regenerate terrain once to get the full V5 procedural material workflow.
+
+### Animated Water
+
+Water is provided by a reusable `ProceduralWater3D` node. The terrain generator can auto-create a child named `WaterPlane`, or configure a node assigned through `Water Node Path`.
+
+Top-level water controls stay in the terrain `Environment` section for quick integration: `Water Enabled`, `Water Level`, `Water Color`, `Water Alpha`, `Auto Create Water`, and `Water Node Path`.
+
+Select the `WaterPlane` node directly for advanced water controls such as quality preset, wave strength, foam strength, refraction strength, shallow/mid/deep colors, wave directions, normal and foam tiling, depth fade, shoreline alpha fade, shoreline foam width, and mesh subdivisions. The default quality is `High Fidelity`; lower it to `Balanced` or `Lightweight` if the viewport needs more FPS.
+
+Once a `ProceduralWater3D` node exists, it owns its visual water tuning. The terrain generator still syncs integration values such as enabled state, size, level, and resource directory, but it does not overwrite the water node's color, alpha, wave, foam, or subdivision settings on reload.
 
 ### Visual Material
 
@@ -157,8 +193,11 @@ For open-source distribution:
 | Path | Purpose |
 | --- | --- |
 | `node_3d.gd` | Main editor-facing terrain generator script and Inspector workflow. |
+| `terrain_heightfield.gd` | Shared noise/imported height data used by meshes, collision, and export. |
 | `terrain_mesh_builder.gd` | Chunk mesh, LOD mesh, skirt, normal, and terrain mask generation. |
-| `terrain_material_manager.gd` | Procedural terrain/water shaders, materials, and generated noise resources. |
+| `terrain_material_manager.gd` | Procedural terrain shaders, materials, and generated noise resources. |
+| `procedural_water_3d.gd` | Reusable animated water node with its own mesh, shader, material, and saved resources. |
+| `terrain_preset.gd` | Native Godot Resource used by terrain preset save/load. |
 | `node_3d.tscn` | Main Godot scene using the generator. |
 | `generated_terrain/` | Generated binary terrain mesh resources. |
 | `project.godot` | Godot project configuration. |

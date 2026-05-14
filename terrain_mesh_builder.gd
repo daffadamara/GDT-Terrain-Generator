@@ -3,6 +3,7 @@ extends RefCounted
 class_name TerrainMeshBuilder
 
 var noise: FastNoiseLite
+var heightfield: RefCounted
 var active_chunk_resolution := 64
 var active_total_resolution := 64
 var active_step := 1.0
@@ -23,6 +24,7 @@ var use_v5_masks := true
 
 func configure(settings: Dictionary) -> void:
 	noise = settings.get("noise", noise) as FastNoiseLite
+	heightfield = settings.get("heightfield", heightfield) as RefCounted
 	active_chunk_resolution = int(settings.get("active_chunk_resolution", active_chunk_resolution))
 	active_total_resolution = int(settings.get("active_total_resolution", active_total_resolution))
 	active_step = float(settings.get("active_step", active_step))
@@ -103,7 +105,7 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 			index_write_position = _write_triangle(indices, index_write_position, top_right, bottom_right, bottom_left)
 
 	if add_skirts:
-		_append_skirts(vertices, normals, uvs, colors, indices, vertices_per_side, _get_skirt_depth(display_stride))
+		_append_detailed_edge_curtains(vertices, normals, uvs, colors, indices, chunk_x, chunk_z, _get_skirt_depth(display_stride))
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -119,6 +121,8 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 
 
 func sample_height(world_x: float, world_z: float) -> float:
+	if heightfield != null and heightfield.is_valid():
+		return heightfield.sample_world(world_x, world_z)
 	if noise == null:
 		return 0.0
 	return noise.get_noise_2d(world_x, world_z) * height_scale
@@ -220,22 +224,110 @@ func _write_triangle(indices: PackedInt32Array, write_position: int, a: int, b: 
 	return write_position + 3
 
 
-func _append_skirts(
+func _append_detailed_edge_curtains(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs: PackedVector2Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
-	vertices_per_side: int,
+	chunk_x: int,
+	chunk_z: int,
 	skirt_depth: float
 ) -> void:
-	for x in vertices_per_side - 1:
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(x, 0, vertices_per_side), _vertex_index(x + 1, 0, vertices_per_side), skirt_depth)
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(x + 1, vertices_per_side - 1, vertices_per_side), _vertex_index(x, vertices_per_side - 1, vertices_per_side), skirt_depth)
+	var start_grid_x := chunk_x * active_chunk_resolution
+	var start_grid_z := chunk_z * active_chunk_resolution
 
-	for z in vertices_per_side - 1:
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(0, z + 1, vertices_per_side), _vertex_index(0, z, vertices_per_side), skirt_depth)
-		_append_skirt_segment(vertices, normals, uvs, colors, indices, _vertex_index(vertices_per_side - 1, z, vertices_per_side), _vertex_index(vertices_per_side - 1, z + 1, vertices_per_side), skirt_depth)
+	for x in active_chunk_resolution:
+		_append_curtain_segment_from_grid(
+			vertices,
+			normals,
+			uvs,
+			colors,
+			indices,
+			start_grid_x + x,
+			start_grid_z,
+			start_grid_x + x + 1,
+			start_grid_z,
+			skirt_depth
+		)
+		_append_curtain_segment_from_grid(
+			vertices,
+			normals,
+			uvs,
+			colors,
+			indices,
+			start_grid_x + x + 1,
+			start_grid_z + active_chunk_resolution,
+			start_grid_x + x,
+			start_grid_z + active_chunk_resolution,
+			skirt_depth
+		)
+
+	for z in active_chunk_resolution:
+		_append_curtain_segment_from_grid(
+			vertices,
+			normals,
+			uvs,
+			colors,
+			indices,
+			start_grid_x,
+			start_grid_z + z + 1,
+			start_grid_x,
+			start_grid_z + z,
+			skirt_depth
+		)
+		_append_curtain_segment_from_grid(
+			vertices,
+			normals,
+			uvs,
+			colors,
+			indices,
+			start_grid_x + active_chunk_resolution,
+			start_grid_z + z,
+			start_grid_x + active_chunk_resolution,
+			start_grid_z + z + 1,
+			skirt_depth
+		)
+
+
+func _append_curtain_segment_from_grid(
+	vertices: PackedVector3Array,
+	normals: PackedVector3Array,
+	uvs: PackedVector2Array,
+	colors: PackedColorArray,
+	indices: PackedInt32Array,
+	grid_ax: int,
+	grid_az: int,
+	grid_bx: int,
+	grid_bz: int,
+	skirt_depth: float
+) -> void:
+	var top_a := _terrain_vertex_from_grid(grid_ax, grid_az)
+	var top_b := _terrain_vertex_from_grid(grid_bx, grid_bz)
+	var normal_a := _sample_normal_for_grid(grid_ax, grid_az, 1)
+	var normal_b := _sample_normal_for_grid(grid_bx, grid_bz, 1)
+	var uv_a := Vector2(float(grid_ax) / float(active_total_resolution), float(grid_az) / float(active_total_resolution))
+	var uv_b := Vector2(float(grid_bx) / float(active_total_resolution), float(grid_bz) / float(active_total_resolution))
+	var color_a := mask_for_terrain(top_a.y, normal_a) if use_v5_masks else color_for_terrain(top_a.y, normal_a)
+	var color_b := mask_for_terrain(top_b.y, normal_b) if use_v5_masks else color_for_terrain(top_b.y, normal_b)
+	_append_skirt_segment(vertices, normals, uvs, colors, indices, top_a, top_b, normal_a, normal_b, uv_a, uv_b, color_a, color_b, skirt_depth)
+
+
+func _terrain_vertex_from_grid(grid_x: int, grid_z: int) -> Vector3:
+	var world_x := float(grid_x) * active_step - active_half_size
+	var world_z := float(grid_z) * active_step - active_half_size
+	return Vector3(world_x, sample_height(world_x, world_z), world_z)
+
+
+func _sample_normal_for_grid(grid_x: int, grid_z: int, sample_stride: int) -> Vector3:
+	var sample_distance := active_step * float(maxi(1, sample_stride))
+	var world_x := float(grid_x) * active_step - active_half_size
+	var world_z := float(grid_z) * active_step - active_half_size
+	var left_height := sample_height(world_x - sample_distance, world_z)
+	var right_height := sample_height(world_x + sample_distance, world_z)
+	var back_height := sample_height(world_x, world_z - sample_distance)
+	var forward_height := sample_height(world_x, world_z + sample_distance)
+	return Vector3(left_height - right_height, sample_distance * 2.0, back_height - forward_height).normalized()
 
 
 func _append_skirt_segment(
@@ -244,13 +336,17 @@ func _append_skirt_segment(
 	uvs: PackedVector2Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
-	top_a_index: int,
-	top_b_index: int,
+	top_a: Vector3,
+	top_b: Vector3,
+	normal_a: Vector3,
+	normal_b: Vector3,
+	uv_a: Vector2,
+	uv_b: Vector2,
+	color_a: Color,
+	color_b: Color,
 	skirt_depth: float
 ) -> void:
 	var base_index := vertices.size()
-	var top_a := vertices[top_a_index]
-	var top_b := vertices[top_b_index]
 	var bottom_a := top_a + Vector3.DOWN * skirt_depth
 	var bottom_b := top_b + Vector3.DOWN * skirt_depth
 
@@ -258,18 +354,18 @@ func _append_skirt_segment(
 	vertices.append(top_b)
 	vertices.append(bottom_a)
 	vertices.append(bottom_b)
-	normals.append(normals[top_a_index])
-	normals.append(normals[top_b_index])
-	normals.append(normals[top_a_index])
-	normals.append(normals[top_b_index])
-	uvs.append(uvs[top_a_index])
-	uvs.append(uvs[top_b_index])
-	uvs.append(uvs[top_a_index])
-	uvs.append(uvs[top_b_index])
-	colors.append(colors[top_a_index])
-	colors.append(colors[top_b_index])
-	colors.append(colors[top_a_index])
-	colors.append(colors[top_b_index])
+	normals.append(normal_a)
+	normals.append(normal_b)
+	normals.append(normal_a)
+	normals.append(normal_b)
+	uvs.append(uv_a)
+	uvs.append(uv_b)
+	uvs.append(uv_a)
+	uvs.append(uv_b)
+	colors.append(color_a)
+	colors.append(color_b)
+	colors.append(color_a)
+	colors.append(color_b)
 
 	indices.append(base_index)
 	indices.append(base_index + 2)

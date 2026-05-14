@@ -4,10 +4,23 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- Shared heightfield pipeline for noise, imported heightmaps, mesh generation, collision, and export.
+- `Terrain Source` controls for replacing procedural noise with an imported PNG heightmap.
+- Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, refraction controls, and water quality presets.
+- Improved water defaults with shallow/mid/deep blue depth coloring, linear-depth shoreline foam, shoreline alpha fade, larger foam tiling controls, and more visible top-down surface highlights.
+- Native Godot `.tres` terrain preset save/load workflow.
+- Heightmap export to grayscale PNG.
+
 ### Changed
 
+- Terrain mesh generation now samples from the active heightfield instead of calling noise directly.
+- Water shader, material, mesh, and resource saving now live outside the terrain material manager.
+- Terrain water controls now configure an auto-created or assigned `ProceduralWater3D` node without overwriting existing water visual tuning on scene reload.
+- Tidied the Inspector workflow by moving preset and heightmap buttons beside their paths, grouping primary terrain actions, and replacing several maintenance buttons with a single selected utility runner.
 - Split terrain mesh building into `terrain_mesh_builder.gd`.
-- Split procedural terrain and water material handling into `terrain_material_manager.gd`.
+- Kept terrain material handling in `terrain_material_manager.gd`.
 - Kept `node_3d.gd` focused on editor workflow, generation orchestration, LOD, culling, collision, and scene ownership.
 
 ## v5 - Procedural Visual Material Upgrade
