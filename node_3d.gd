@@ -1,5 +1,6 @@
 @tool
 extends Node3D
+class_name GdtTerrain3D
 
 const TerrainMaterialManagerScript = preload("res://terrain_material_manager.gd")
 const TerrainMeshBuilderScript = preload("res://terrain_mesh_builder.gd")
@@ -10,12 +11,16 @@ const ProceduralWaterScript = preload("res://procedural_water_3d.gd")
 enum GenerationMode { PREVIEW, FINAL }
 enum SourceMode { NOISE, HEIGHTMAP }
 enum CollisionMode { DISABLED, FINAL_ONLY, ALL_BUILDS }
+enum PreviewBackend { MESH, SHADER }
+enum BakePreset { VISUAL_ONLY, GAME_READY, HIGH_ACCURACY, CUSTOM }
 enum ViewportQuality { FULL, HALF, QUARTER, EIGHTH }
 enum LodProfile { QUALITY, BALANCED, PERFORMANCE }
 enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS }
-enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION }
+enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS }
+enum GenerationPhase { IDLE, BUILDING_MESH_ARRAYS, FINALIZING_CHUNKS, SAVING_LODS, GENERATING_COLLISION, SAVING_RESOURCES }
 
 const TERRAIN_CHUNKS_NAME := "TerrainChunks"
+const SHADER_PREVIEW_NAME := "ShaderPreviewTerrain"
 const WATER_PLANE_NAME := "WaterPlane"
 const PREVIEW_LIGHT_NAME := "TerrainPreviewLight"
 const PREVIEW_ENVIRONMENT_NAME := "TerrainPreviewEnvironment"
@@ -26,6 +31,103 @@ const LOD_STRIDES := [1, 2, 4, 8]
 const TERRAIN_LOD_EDGE_VERSION := 3
 const TERRAIN_ENCODING_V5_MASKS := TerrainMaterialManagerScript.TERRAIN_ENCODING_V5_MASKS
 const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENCODING_LEGACY_COLORS
+
+const SHADER_PREVIEW_CODE := """
+shader_type spatial;
+render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+
+uniform sampler2D height_texture;
+uniform vec4 lowland_color : source_color = vec4(0.15, 0.21, 0.09, 1.0);
+uniform vec4 grass_color : source_color = vec4(0.24, 0.33, 0.15, 1.0);
+uniform vec4 shore_color : source_color = vec4(0.52, 0.48, 0.30, 1.0);
+uniform vec4 seabed_color : source_color = vec4(0.20, 0.17, 0.10, 1.0);
+uniform vec4 rock_color : source_color = vec4(0.27, 0.24, 0.18, 1.0);
+uniform vec4 snow_color : source_color = vec4(0.86, 0.84, 0.76, 1.0);
+uniform bool water_enabled = true;
+uniform bool snow_enabled = true;
+uniform float water_level = 0.0;
+uniform float height_min = -5.0;
+uniform float height_max = 5.0;
+uniform float terrain_size = 64.0;
+uniform float height_texel_size = 0.001953125;
+uniform float height_scale = 5.0;
+uniform float snow_height = 5.0;
+uniform float rock_slope_threshold = 0.44;
+uniform float material_brightness = 1.32;
+uniform float material_contrast = 1.0;
+uniform float shore_wetness_strength = 0.28;
+
+varying float terrain_height;
+varying float terrain_slope;
+varying vec2 terrain_uv;
+
+float soft_band(float edge0, float edge1, float value) {
+	if (abs(edge1 - edge0) < 0.0001) {
+		return 0.0;
+	}
+	float x = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
+	return x * x * (3.0 - 2.0 * x);
+}
+
+float sample_height(vec2 uv) {
+	float height_amount = texture(height_texture, clamp(uv, vec2(0.0), vec2(1.0))).r;
+	return mix(height_min, height_max, height_amount);
+}
+
+vec3 adjust_color(vec3 color) {
+	color *= material_brightness;
+	color = (color - vec3(0.5)) * material_contrast + vec3(0.5);
+	return clamp(color, vec3(0.0), vec3(1.0));
+}
+
+void vertex() {
+	terrain_uv = UV;
+	terrain_height = sample_height(UV);
+	float texel = height_texel_size;
+	float left_height = sample_height(UV + vec2(-texel, 0.0));
+	float right_height = sample_height(UV + vec2(texel, 0.0));
+	float back_height = sample_height(UV + vec2(0.0, -texel));
+	float forward_height = sample_height(UV + vec2(0.0, texel));
+	float sample_distance = max(terrain_size * texel, 0.001);
+	vec3 normal_estimate = normalize(vec3(left_height - right_height, sample_distance * 2.0, back_height - forward_height));
+	terrain_slope = clamp(1.0 - normal_estimate.y, 0.0, 1.0);
+	VERTEX.y = terrain_height;
+	NORMAL = normal_estimate;
+}
+
+void fragment() {
+	float height_range = max(height_scale, 0.001);
+	float normalized_height = clamp((terrain_height / height_range + 1.0) * 0.5, 0.0, 1.0);
+	float shore_width = max(height_scale * 0.10, 0.35);
+	vec3 color = mix(lowland_color.rgb, grass_color.rgb, soft_band(0.20, 0.78, normalized_height));
+
+	if (water_enabled) {
+		if (terrain_height < water_level) {
+			float underwater_depth = water_level - terrain_height;
+			float seabed_amount = soft_band(0.0, max(height_scale * 0.35, 0.75), underwater_depth);
+			color = mix(shore_color.rgb, seabed_color.rgb, seabed_amount);
+		} else if (terrain_height < water_level + shore_width) {
+			float dry_shore_amount = soft_band(0.0, shore_width, terrain_height - water_level);
+			color = mix(shore_color.rgb, color, dry_shore_amount);
+		}
+	}
+
+	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), terrain_slope);
+	float snow_blend_width = max(height_scale * 0.12, 0.35);
+	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
+	color = mix(color, rock_color.rgb, rock_amount);
+	color = mix(color, snow_color.rgb, snow_amount);
+
+	if (water_enabled) {
+		float wet_amount = 1.0 - soft_band(0.0, shore_width, abs(terrain_height - water_level));
+		color = mix(color, color * 0.68, wet_amount * shore_wetness_strength);
+	}
+
+	ALBEDO = adjust_color(color);
+	ROUGHNESS = mix(0.92, 0.64, rock_amount);
+	SPECULAR = 0.18;
+}
+"""
 
 @export_category("Terrain Shape")
 
@@ -72,6 +174,13 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 @export_range(0.001, 1.0, 0.001) var noise_frequency: float = 0.032:
 	set(value):
 		noise_frequency = maxf(0.001, value)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Zooms the procedural noise pattern. Larger values create broader continents without changing terrain size.
+@export_range(0.1, 256.0, 0.1, "or_greater") var terrain_scale: float = 1.0:
+	set(value):
+		terrain_scale = maxf(0.1, value)
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
@@ -172,6 +281,12 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(value):
 		water_node_path = value
 		_update_water_plane()
+
+## World Y height where terrain begins blending toward snow. Updates existing terrain colors without rebuilding chunks.
+@export var snow_enabled: bool = true:
+	set(value):
+		snow_enabled = value
+		_queue_visual_update()
 
 ## World Y height where terrain begins blending toward snow. Updates existing terrain colors without rebuilding chunks.
 @export_range(-64.0, 64.0, 0.1) var snow_height: float = 5.0:
@@ -292,11 +407,44 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 		if auto_update:
 			_queue_regenerate(GenerationMode.PREVIEW)
 
+## High-level bake intent. Use Game Ready when the baked terrain should be playable immediately.
+@export_enum("Visual Only", "Game Ready", "High Accuracy", "Custom") var bake_preset: int = BakePreset.GAME_READY:
+	set(value):
+		bake_preset = clampi(value, BakePreset.VISUAL_ONLY, BakePreset.CUSTOM)
+		_apply_bake_preset()
+
 ## Lets the generator choose preview detail and chunk build speed automatically. Collision is controlled separately by Collision Mode.
 @export var auto_performance_settings: bool = true:
 	set(value):
 		auto_performance_settings = value
 		_queue_regenerate(GenerationMode.PREVIEW)
+
+## Preview renderer used while tuning terrain before a final mesh bake.
+@export_enum("Mesh Preview", "Shader Preview") var preview_backend: int = PreviewBackend.SHADER:
+	set(value):
+		preview_backend = clampi(value, PreviewBackend.MESH, PreviewBackend.SHADER)
+		_queue_regenerate(GenerationMode.PREVIEW, true)
+
+## Height texture detail used by Shader Preview.
+@export_range(64, 1024, 1) var shader_preview_texture_resolution: int = 256:
+	set(value):
+		shader_preview_texture_resolution = clampi(value, 64, 1024)
+		_queue_regenerate(GenerationMode.PREVIEW)
+
+## Plane subdivisions used by Shader Preview. Higher values show smoother GPU displacement but cost more viewport rendering.
+@export_range(16, 512, 1) var shader_preview_subdivisions: int = 128:
+	set(value):
+		shader_preview_subdivisions = clampi(value, 16, 512)
+		_queue_regenerate(GenerationMode.PREVIEW)
+
+## Number of CPU worker threads used to prepare terrain mesh arrays before main-thread finalization.
+@export_range(1, 8, 1) var generation_worker_count: int = 1
+
+## Approximate milliseconds per frame spent on main-thread chunk finalization, LOD saving, and collision.
+@export_range(1.0, 33.0, 0.5) var finalization_time_budget_ms: float = 8.0
+
+## Builds final collision after visible chunks and saved LODs are ready, keeping the editor more responsive.
+@export var defer_final_collision: bool = true
 
 ## True after Generate Final finishes. Locked terrain is saved with the scene and will not regenerate until Clear Generated Terrain is used.
 @export var final_terrain_locked: bool = false:
@@ -305,6 +453,9 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 
 ## Saves final chunk meshes as binary .res files so the text scene stays small and quick to save/load.
 @export var save_final_meshes_as_resources: bool = true
+
+## Prints final generation timing buckets to the output panel for profiling.
+@export var print_generation_timings: bool = false
 
 ## Folder used for generated binary mesh and collision resources.
 @export var generated_resource_directory: String = DEFAULT_GENERATED_RESOURCE_DIR
@@ -410,25 +561,28 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(value):
 		chunks_per_frame = clampi(value, 1, 16)
 
-## Collision generation policy. Disabled is best for editor viewport performance; Final Only adds physics to final builds.
-@export_enum("Disabled", "Final Only", "All Builds") var collision_mode: int = CollisionMode.DISABLED:
+## Collision generation policy. Final Only is the game-ready default; Disabled creates a visual-only bake.
+@export_enum("Disabled", "Final Only", "All Builds") var collision_mode: int = CollisionMode.FINAL_ONLY:
 	set(value):
 		collision_mode = clampi(value, CollisionMode.DISABLED, CollisionMode.ALL_BUILDS)
+		_mark_bake_preset_custom()
 		if collision_mode == CollisionMode.DISABLED:
 			remove_generated_collision()
 		else:
 			_queue_regenerate()
 
-## Which chunks should receive collision. Near Center is fastest for editor inspection.
-@export_enum("Near Center", "Visible Chunks", "All Chunks") var collision_coverage: int = CollisionCoverage.NEAR_CENTER:
+## Which chunks should receive collision. All Chunks is for playable baked terrain; Near Center and Visible Chunks are editor/testing modes.
+@export_enum("Near Center (Testing)", "Visible Chunks (Testing)", "All Chunks") var collision_coverage: int = CollisionCoverage.ALL_CHUNKS:
 	set(value):
 		collision_coverage = clampi(value, CollisionCoverage.NEAR_CENTER, CollisionCoverage.ALL_CHUNKS)
+		_mark_bake_preset_custom()
 		_refresh_collision_for_focus_if_needed()
 
-## Collision mesh detail. Quarter is much cheaper than full terrain collision and is the default.
-@export_enum("Full", "Half", "Quarter", "Eighth") var collision_quality: int = ViewportQuality.QUARTER:
+## Collision mesh detail. Half is the default balance for game-ready terrain.
+@export_enum("Full", "Half", "Quarter", "Eighth") var collision_quality: int = ViewportQuality.HALF:
 	set(value):
 		collision_quality = clampi(value, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+		_mark_bake_preset_custom()
 		_refresh_collision_for_focus_if_needed()
 
 ## Collision radius around Culling Center when coverage is Near Center. Auto Performance uses Terrain Size * 0.35.
@@ -443,7 +597,7 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 		collision_chunks_per_frame = clampi(value, 1, 16)
 
 ## Utility command used by Run Selected Utility. These are less common maintenance actions kept out of the primary workflow buttons.
-@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
+@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision", "Reveal All Chunks") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
 
 ## Runs the utility selected above.
 @export_tool_button("Run Selected Utility") var run_selected_utility_button = run_selected_utility
@@ -465,10 +619,31 @@ const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENC
 	set(_value):
 		pass
 
+## Read-only number of generated terrain chunks currently visible after viewport culling.
+@export var visible_chunks: int:
+	get:
+		return _count_visible_generated_chunks()
+	set(_value):
+		pass
+
 ## Read-only flag that is true while chunks are being generated across frames.
 @export var is_generating: bool:
 	get:
 		return _is_generating or _is_generating_collision
+	set(_value):
+		pass
+
+## Read-only label for the active generation phase.
+@export var generation_phase: String:
+	get:
+		return _generation_phase_text
+	set(_value):
+		pass
+
+## Read-only summary of whether the current workflow is preview-only, visual-only, or playable.
+@export var bake_state: String:
+	get:
+		return _last_bake_state
 	set(_value):
 		pass
 
@@ -497,9 +672,15 @@ var _material_manager := TerrainMaterialManagerScript.new()
 var _mesh_builder := TerrainMeshBuilderScript.new()
 var _source_heightfield := TerrainHeightfieldScript.new()
 var _active_heightfield := TerrainHeightfieldScript.new()
+var _shader_preview_material: ShaderMaterial
+var _shader_preview_shader: Shader
+var _shader_preview_height_texture: Texture2D
+var _shader_preview_regenerate_pending := false
+var _shader_preview_regenerate_delay := 0.0
 var _heightfield_resolution := 0
 var _heightfield_dirty := true
 var _loading_preset := false
+var _applying_bake_preset := false
 var _visible_radius_auto_managed := true
 var _setting_auto_visible_radius := false
 
@@ -507,6 +688,12 @@ var _regeneration_queued := false
 var _queued_generation_mode := GenerationMode.PREVIEW
 
 var _pending_chunks: Array[Vector2i] = []
+var _mesh_build_jobs: Array = []
+var _pending_chunk_results: Array = []
+var _pending_lod_save_jobs: Array = []
+var _pending_deferred_collision_chunks: Array[MeshInstance3D] = []
+var _active_generation_phase := GenerationPhase.IDLE
+var _generation_phase_text := "Idle"
 var _active_generation_mode := GenerationMode.PREVIEW
 var _active_chunk_resolution := 64
 var _active_total_resolution := 64
@@ -514,6 +701,10 @@ var _active_step := 1.0
 var _active_half_size := 32.0
 var _active_build_collision := false
 var _active_display_stride := 1
+var _last_bake_state := "Preview is for visual iteration only."
+var _generation_timing_active := false
+var _generation_timing_total_start_usec := 0
+var _generation_timing_usec := {}
 
 var _generated_chunks := 0
 var _total_chunks := 0
@@ -526,6 +717,71 @@ var _is_generating_collision := false
 var _last_automatic_lod_focus := Vector2.INF
 
 
+func _reset_generation_timings(mode: int) -> void:
+	_generation_timing_active = print_generation_timings and mode == GenerationMode.FINAL
+	_generation_timing_total_start_usec = Time.get_ticks_usec() if _generation_timing_active else 0
+	_generation_timing_usec = {
+		"heightfield": 0,
+		"chunk_mesh": 0,
+		"lod_save": 0,
+		"collision": 0,
+		"visual_resource_save": 0,
+		"water_update": 0,
+	}
+
+
+func _timing_begin() -> int:
+	return Time.get_ticks_usec() if _generation_timing_active else 0
+
+
+func _timing_add(bucket: String, start_usec: int) -> void:
+	if not _generation_timing_active or start_usec <= 0:
+		return
+	_generation_timing_usec[bucket] = int(_generation_timing_usec.get(bucket, 0)) + Time.get_ticks_usec() - start_usec
+
+
+func _print_generation_timings() -> void:
+	if not _generation_timing_active:
+		return
+	var total_usec := Time.get_ticks_usec() - _generation_timing_total_start_usec
+	print(
+		"Final terrain timings: total=%.2fs heightfield=%.2fs chunk_mesh=%.2fs lod_save=%.2fs collision=%.2fs visual_resource_save=%.2fs water_update=%.2fs" % [
+			float(total_usec) / 1000000.0,
+			float(_generation_timing_usec.get("heightfield", 0)) / 1000000.0,
+			float(_generation_timing_usec.get("chunk_mesh", 0)) / 1000000.0,
+			float(_generation_timing_usec.get("lod_save", 0)) / 1000000.0,
+			float(_generation_timing_usec.get("collision", 0)) / 1000000.0,
+			float(_generation_timing_usec.get("visual_resource_save", 0)) / 1000000.0,
+			float(_generation_timing_usec.get("water_update", 0)) / 1000000.0,
+		]
+	)
+	_generation_timing_active = false
+
+
+func _set_generation_phase(phase: int) -> void:
+	_active_generation_phase = phase
+	match phase:
+		GenerationPhase.BUILDING_MESH_ARRAYS:
+			_generation_phase_text = "Building mesh arrays"
+		GenerationPhase.FINALIZING_CHUNKS:
+			_generation_phase_text = "Finalizing chunks"
+		GenerationPhase.SAVING_LODS:
+			_generation_phase_text = "Saving LOD resources"
+		GenerationPhase.GENERATING_COLLISION:
+			_generation_phase_text = "Generating collision"
+		GenerationPhase.SAVING_RESOURCES:
+			_generation_phase_text = "Saving final resources"
+		_:
+			_generation_phase_text = "Idle"
+
+
+func _main_thread_budget_exhausted(start_usec: int, processed_count: int) -> bool:
+	if processed_count <= 0:
+		return false
+	var elapsed_usec := Time.get_ticks_usec() - start_usec
+	return elapsed_usec >= int(finalization_time_budget_ms * 1000.0)
+
+
 func _ready() -> void:
 	set_process(false)
 	_sync_auto_visible_radius(false)
@@ -534,6 +790,7 @@ func _ready() -> void:
 		_configure_noise()
 		_configure_active_generation_state(GenerationMode.FINAL)
 		_ensure_active_heightfield()
+		_configure_existing_collision_shapes()
 		_update_water_plane()
 		_update_automatic_lod_focus(true)
 		_apply_viewport_culling()
@@ -542,13 +799,19 @@ func _ready() -> void:
 	_queue_regenerate(GenerationMode.PREVIEW)
 
 
-func _process(_delta: float) -> void:
+func _exit_tree() -> void:
+	_finish_mesh_build_thread()
+
+
+func _process(delta: float) -> void:
 	if _is_generating:
 		_build_next_chunks()
 	elif _is_recoloring:
 		_recolor_next_chunks()
 	elif _is_generating_collision:
 		_build_next_collision_chunks()
+	elif _shader_preview_regenerate_pending:
+		_process_shader_preview_regenerate(delta)
 	else:
 		_update_automatic_lod_focus()
 
@@ -569,7 +832,13 @@ func generate_final_now() -> void:
 
 func cancel_generation() -> void:
 	_pending_chunks.clear()
+	_pending_chunk_results.clear()
+	_pending_lod_save_jobs.clear()
+	_pending_deferred_collision_chunks.clear()
+	_shader_preview_regenerate_pending = false
 	_is_generating = false
+	_finish_mesh_build_thread()
+	_set_generation_phase(GenerationPhase.IDLE)
 	_cancel_collision_generation()
 	_update_processing_state()
 
@@ -579,6 +848,7 @@ func clear_generated_terrain() -> void:
 	_cancel_recolor()
 	final_terrain_locked = false
 	_remove_legacy_v1_nodes()
+	_remove_shader_preview()
 	_remove_water_plane()
 
 	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
@@ -642,6 +912,8 @@ func run_selected_utility() -> void:
 			generate_collision_for_existing_terrain()
 		UtilityAction.REMOVE_COLLISION:
 			remove_generated_collision()
+		UtilityAction.REVEAL_ALL_CHUNKS:
+			reveal_all_generated_chunks()
 
 
 func externalize_generated_resources() -> void:
@@ -682,6 +954,95 @@ func setup_preview_lighting() -> void:
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.68, 0.72, 0.76)
 	environment.ambient_light_energy = 0.55
+
+
+func reveal_all_generated_chunks() -> void:
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found to reveal.")
+		return
+	viewport_culling_enabled = false
+	_apply_viewport_culling()
+	_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+
+
+func _apply_bake_preset() -> void:
+	if _applying_bake_preset or bake_preset == BakePreset.CUSTOM:
+		return
+
+	_applying_bake_preset = true
+	match bake_preset:
+		BakePreset.VISUAL_ONLY:
+			collision_mode = CollisionMode.DISABLED
+			collision_coverage = CollisionCoverage.ALL_CHUNKS
+			collision_quality = ViewportQuality.HALF
+		BakePreset.HIGH_ACCURACY:
+			collision_mode = CollisionMode.FINAL_ONLY
+			collision_coverage = CollisionCoverage.ALL_CHUNKS
+			collision_quality = ViewportQuality.FULL
+		_:
+			collision_mode = CollisionMode.FINAL_ONLY
+			collision_coverage = CollisionCoverage.ALL_CHUNKS
+			collision_quality = ViewportQuality.HALF
+	_applying_bake_preset = false
+	_update_bake_state(GenerationMode.PREVIEW)
+
+
+func _mark_bake_preset_custom() -> void:
+	if _applying_bake_preset or bake_preset == BakePreset.CUSTOM:
+		return
+	var expected := _get_bake_preset_collision_settings(bake_preset)
+	if expected.is_empty():
+		return
+	if collision_mode != int(expected["collision_mode"]) or collision_coverage != int(expected["collision_coverage"]) or collision_quality != int(expected["collision_quality"]):
+		bake_preset = BakePreset.CUSTOM
+
+
+func _get_bake_preset_collision_settings(preset: int) -> Dictionary:
+	match preset:
+		BakePreset.VISUAL_ONLY:
+			return {
+				"collision_mode": CollisionMode.DISABLED,
+				"collision_coverage": CollisionCoverage.ALL_CHUNKS,
+				"collision_quality": ViewportQuality.HALF,
+			}
+		BakePreset.GAME_READY:
+			return {
+				"collision_mode": CollisionMode.FINAL_ONLY,
+				"collision_coverage": CollisionCoverage.ALL_CHUNKS,
+				"collision_quality": ViewportQuality.HALF,
+			}
+		BakePreset.HIGH_ACCURACY:
+			return {
+				"collision_mode": CollisionMode.FINAL_ONLY,
+				"collision_coverage": CollisionCoverage.ALL_CHUNKS,
+				"collision_quality": ViewportQuality.FULL,
+			}
+		_:
+			return {}
+
+
+func _update_bake_state(mode: int) -> void:
+	var visibility_summary := _get_chunk_visibility_summary()
+	if mode == GenerationMode.PREVIEW:
+		_last_bake_state = "Preview is for visual iteration only.%s" % visibility_summary
+		return
+	if collision_mode == CollisionMode.DISABLED:
+		_last_bake_state = "Visual Bake complete: terrain visuals are baked, collision is disabled.%s" % visibility_summary
+		return
+	if collision_coverage == CollisionCoverage.ALL_CHUNKS:
+		_last_bake_state = "Game Ready Bake complete: every chunk has collision.%s" % visibility_summary
+		return
+	_last_bake_state = "Testing Bake complete: collision is limited and is not safe for final playable terrain.%s" % visibility_summary
+
+
+func _get_chunk_visibility_summary() -> String:
+	if not _has_generated_chunks():
+		return ""
+	var total_count := _count_generated_chunks()
+	var visible_count := _count_visible_generated_chunks()
+	if visible_count >= total_count:
+		return ""
+	return " %d/%d chunks visible; viewport culling is hiding the rest." % [visible_count, total_count]
 
 
 func save_preset() -> void:
@@ -755,6 +1116,10 @@ func _queue_regenerate(requested_mode: int = -1, manual: bool = false) -> void:
 	if not manual:
 		mode = GenerationMode.PREVIEW
 
+	if _use_shader_preview(mode) and not manual:
+		_queue_shader_preview_regenerate()
+		return
+
 	_queued_generation_mode = mode
 	if _regeneration_queued:
 		return
@@ -768,27 +1133,56 @@ func _start_queued_generation() -> void:
 	_start_generation(_queued_generation_mode)
 
 
+func _queue_shader_preview_regenerate() -> void:
+	_regeneration_queued = false
+	_shader_preview_regenerate_pending = true
+	_shader_preview_regenerate_delay = 0.18
+	_update_processing_state()
+
+
+func _process_shader_preview_regenerate(delta: float) -> void:
+	_shader_preview_regenerate_delay -= delta
+	if _shader_preview_regenerate_delay > 0.0:
+		return
+	_shader_preview_regenerate_pending = false
+	_start_generation(GenerationMode.PREVIEW)
+
+
 func _start_generation(mode: int) -> void:
+	_reset_generation_timings(mode)
 	cancel_generation()
 	_cancel_recolor()
 	_configure_noise()
 	_remove_legacy_v1_nodes()
+	_remove_shader_preview()
 	_update_visual_materials()
 	_update_water_plane()
 
 	var chunks_root := _get_or_create_chunks_root()
-	for child in chunks_root.get_children():
-		chunks_root.remove_child(child)
-		child.queue_free()
+	_clear_chunk_nodes(chunks_root)
 
 	_configure_active_generation_state(mode)
 	if not _ensure_active_heightfield():
 		_update_processing_state()
 		return
+
+	if _use_shader_preview(mode):
+		_generate_shader_preview()
+		_generated_chunks = 1
+		_total_chunks = 1
+		_is_generating = false
+		_set_generation_phase(GenerationPhase.IDLE)
+		_update_bake_state(mode)
+		_update_processing_state()
+		return
+
 	_active_build_collision = _should_build_collision(mode)
 	_active_display_stride = _get_viewport_display_stride()
 
 	_pending_chunks.clear()
+	_pending_chunk_results.clear()
+	_pending_lod_save_jobs.clear()
+	_pending_deferred_collision_chunks.clear()
 	for chunk_z in chunks_per_side:
 		for chunk_x in chunks_per_side:
 			_pending_chunks.append(Vector2i(chunk_x, chunk_z))
@@ -796,6 +1190,8 @@ func _start_generation(mode: int) -> void:
 	_generated_chunks = 0
 	_total_chunks = _pending_chunks.size()
 	_is_generating = _total_chunks > 0
+	_set_generation_phase(GenerationPhase.BUILDING_MESH_ARRAYS if _is_generating else GenerationPhase.IDLE)
+	_update_bake_state(mode)
 
 	if _is_generating:
 		_update_processing_state()
@@ -805,45 +1201,216 @@ func _start_generation(mode: int) -> void:
 
 
 func _build_next_chunks() -> void:
+	_collect_finished_mesh_build_jobs()
+	_start_mesh_build_jobs()
+
+	var budget_start := Time.get_ticks_usec()
+	_finalize_pending_threaded_chunks(budget_start)
+
+	if _has_active_mesh_build_work():
+		_update_generation_phase_for_mesh_work()
+		return
+
+	if _active_generation_mode == GenerationMode.FINAL and save_final_meshes_as_resources and not _pending_lod_save_jobs.is_empty():
+		if _active_generation_phase != GenerationPhase.SAVING_LODS:
+			_generated_chunks = 0
+			_total_chunks = _pending_lod_save_jobs.size()
+		_set_generation_phase(GenerationPhase.SAVING_LODS)
+		_process_pending_lod_saves(budget_start)
+		return
+
+	if _active_build_collision and not _pending_deferred_collision_chunks.is_empty():
+		if _active_generation_phase != GenerationPhase.GENERATING_COLLISION:
+			_generated_chunks = 0
+			_total_chunks = _pending_deferred_collision_chunks.size()
+		_set_generation_phase(GenerationPhase.GENERATING_COLLISION)
+		_process_pending_deferred_collision(budget_start)
+		return
+
+	_finish_generation_if_complete()
+
+
+func _collect_finished_mesh_build_jobs() -> void:
+	for index in range(_mesh_build_jobs.size() - 1, -1, -1):
+		var job: Dictionary = _mesh_build_jobs[index]
+		var thread := job["thread"] as Thread
+		if thread.is_alive():
+			continue
+		var result = thread.wait_to_finish()
+		_mesh_build_jobs.remove_at(index)
+		if result is Dictionary:
+			result["timing_start_usec"] = int(job.get("timing_start_usec", 0))
+			_pending_chunk_results.append(result)
+
+
+func _start_mesh_build_jobs() -> void:
+	var settings := _get_mesh_builder_settings()
+	var max_workers := clampi(generation_worker_count, 1, 8)
+	while not _pending_chunks.is_empty() and _mesh_build_jobs.size() < max_workers:
+		var chunk_coordinates: Vector2i = _pending_chunks.pop_front()
+		var build_lods := _active_generation_mode == GenerationMode.FINAL and save_final_meshes_as_resources
+		var thread := Thread.new()
+		var timing_start := _timing_begin()
+		var start_error := thread.start(Callable(self, "_build_chunk_data_threaded").bind(chunk_coordinates, _active_display_stride, build_lods, settings))
+		if start_error == OK:
+			_mesh_build_jobs.append({
+				"thread": thread,
+				"timing_start_usec": timing_start,
+			})
+			continue
+
+		var fallback_result := _build_chunk_data_threaded(chunk_coordinates, _active_display_stride, build_lods, settings)
+		fallback_result["timing_start_usec"] = timing_start
+		_pending_chunk_results.append(fallback_result)
+
+
+func _has_active_mesh_build_work() -> bool:
+	return not _pending_chunks.is_empty() or not _mesh_build_jobs.is_empty() or not _pending_chunk_results.is_empty()
+
+
+func _update_generation_phase_for_mesh_work() -> void:
+	if _pending_chunk_results.is_empty() and (not _pending_chunks.is_empty() or not _mesh_build_jobs.is_empty()):
+		_set_generation_phase(GenerationPhase.BUILDING_MESH_ARRAYS)
+	else:
+		_set_generation_phase(GenerationPhase.FINALIZING_CHUNKS)
+
+
+func _build_chunk_data_threaded(chunk_coordinates: Vector2i, display_stride: int, build_lods: bool, settings: Dictionary) -> Dictionary:
+	var builder := TerrainMeshBuilderScript.new()
+	builder.configure(settings)
+	var display_arrays := builder.build_chunk_mesh_arrays(chunk_coordinates.x, chunk_coordinates.y, display_stride)
+	var lod_arrays := []
+
+	if build_lods:
+		for lod_index in LOD_STRIDES.size():
+			var stride: int = LOD_STRIDES[lod_index]
+			if lod_index == 0 and display_stride == 1:
+				lod_arrays.append(display_arrays)
+			else:
+				lod_arrays.append(builder.build_chunk_mesh_arrays(chunk_coordinates.x, chunk_coordinates.y, stride, stride > 1))
+
+	return {
+		"chunk_coordinates": chunk_coordinates,
+		"display_arrays": display_arrays,
+		"lod_arrays": lod_arrays,
+	}
+
+
+func _finish_mesh_build_thread():
+	var results := []
+	for job in _mesh_build_jobs:
+		var thread := job["thread"] as Thread
+		var result = thread.wait_to_finish()
+		if result is Dictionary:
+			result["timing_start_usec"] = int(job.get("timing_start_usec", 0))
+			results.append(result)
+	_mesh_build_jobs.clear()
+	return results
+
+
+func _finalize_pending_threaded_chunks(budget_start: int) -> void:
+	var finalized_count := 0
+	while not _pending_chunk_results.is_empty() and not _main_thread_budget_exhausted(budget_start, finalized_count):
+		_finalize_threaded_chunk(_pending_chunk_results.pop_front())
+		finalized_count += 1
+
+
+func _finalize_threaded_chunk(result: Dictionary) -> void:
 	var chunks_root := _get_or_create_chunks_root()
 	var material := _get_material_for_encoding(_get_new_mesh_material_encoding())
-	var build_count := mini(_get_chunks_per_frame(), _pending_chunks.size())
+	var resource_directory := _get_generated_resource_directory() if _active_generation_mode == GenerationMode.FINAL and save_final_meshes_as_resources else ""
 
-	for _build_index in build_count:
-		var chunk_coordinates: Vector2i = _pending_chunks.pop_front()
-		var chunk_mesh_instance := _create_chunk_mesh_instance(chunk_coordinates.x, chunk_coordinates.y, material)
-		chunk_mesh_instance.mesh = _build_chunk_mesh(chunk_coordinates.x, chunk_coordinates.y, _active_display_stride)
-		chunks_root.add_child(chunk_mesh_instance)
-		if _active_generation_mode == GenerationMode.FINAL:
-			_set_scene_owner(chunk_mesh_instance)
+	var chunk_coordinates: Vector2i = result["chunk_coordinates"] as Vector2i
+	var chunk_mesh_instance := _create_chunk_mesh_instance(chunk_coordinates.x, chunk_coordinates.y, material)
+	chunk_mesh_instance.mesh = _mesh_builder.create_mesh_from_arrays(result["display_arrays"] as Array)
+	_timing_add("chunk_mesh", int(result.get("timing_start_usec", 0)))
+	chunks_root.add_child(chunk_mesh_instance)
+	if _active_generation_mode == GenerationMode.FINAL:
+		_set_scene_owner(chunk_mesh_instance)
 
-		if _active_build_collision and _chunk_is_in_collision_coverage(chunk_mesh_instance):
+	if _active_generation_mode == GenerationMode.FINAL and save_final_meshes_as_resources:
+		_pending_lod_save_jobs.append({
+			"chunk": chunk_mesh_instance,
+			"chunk_x": chunk_coordinates.x,
+			"chunk_z": chunk_coordinates.y,
+			"resource_directory": resource_directory,
+			"lod_arrays": result["lod_arrays"] as Array,
+		})
+
+	if _active_build_collision and _chunk_is_in_collision_coverage(chunk_mesh_instance):
+		if _should_defer_collision_for_active_generation():
+			_pending_deferred_collision_chunks.append(chunk_mesh_instance)
+		else:
+			var collision_timing_start := _timing_begin()
 			_add_chunk_collision(chunk_mesh_instance, chunk_coordinates.x, chunk_coordinates.y)
+			_timing_add("collision", collision_timing_start)
 
-		if _active_generation_mode == GenerationMode.FINAL and save_final_meshes_as_resources:
-			var save_error := _save_chunk_lod_resources(chunk_mesh_instance, chunk_coordinates.x, chunk_coordinates.y)
-			if save_error != OK:
-				push_warning("Could not save chunk LOD resources. Error code: %d" % save_error)
-
-		_generated_chunks += 1
-
-	if _pending_chunks.is_empty():
-		_is_generating = false
-		if _active_generation_mode == GenerationMode.FINAL:
-			if save_final_meshes_as_resources:
-				var save_error := _save_generated_resources(false)
-				if save_error != OK:
-					push_warning("Could not save generated terrain resources. Error code: %d" % save_error)
-			final_terrain_locked = true
-			_assign_materials_to_existing_chunks()
-			_make_generated_nodes_scene_owned()
-		_update_processing_state()
-
+	_generated_chunks += 1
 	_apply_viewport_culling()
 
 
+func _process_pending_lod_saves(budget_start: int) -> void:
+	var processed_count := 0
+
+	while not _pending_lod_save_jobs.is_empty() and not _main_thread_budget_exhausted(budget_start, processed_count):
+		var job: Dictionary = _pending_lod_save_jobs.pop_front()
+		var lod_timing_start := _timing_begin()
+		var chunk := job["chunk"] as MeshInstance3D
+		var save_error := _save_chunk_lod_resources_from_arrays(
+			chunk,
+			int(job["chunk_x"]),
+			int(job["chunk_z"]),
+			str(job["resource_directory"]),
+			job["lod_arrays"] as Array
+		)
+		_timing_add("lod_save", lod_timing_start)
+		if save_error != OK:
+			push_warning("Could not save chunk LOD resources. Error code: %d" % save_error)
+		elif chunk.visible:
+			_apply_lod_to_chunk(chunk)
+		_generated_chunks += 1
+		processed_count += 1
+
+
+func _process_pending_deferred_collision(budget_start: int) -> void:
+	var processed_count := 0
+
+	while not _pending_deferred_collision_chunks.is_empty() and not _main_thread_budget_exhausted(budget_start, processed_count):
+		var chunk: MeshInstance3D = _pending_deferred_collision_chunks.pop_front()
+		var collision_timing_start := _timing_begin()
+		_add_collision_from_existing_mesh(chunk)
+		_timing_add("collision", collision_timing_start)
+		_generated_chunks += 1
+		processed_count += 1
+
+
+func _should_defer_collision_for_active_generation() -> bool:
+	return defer_final_collision and _active_generation_mode == GenerationMode.FINAL
+
+
+func _finish_generation_if_complete() -> void:
+	if _has_active_mesh_build_work() or not _pending_lod_save_jobs.is_empty() or not _pending_deferred_collision_chunks.is_empty():
+		return
+
+	_set_generation_phase(GenerationPhase.SAVING_RESOURCES)
+	_is_generating = false
+	if _active_generation_mode == GenerationMode.FINAL:
+		if save_final_meshes_as_resources:
+			var save_error := _save_generated_resources(false)
+			if save_error != OK:
+				push_warning("Could not save generated terrain resources. Error code: %d" % save_error)
+		final_terrain_locked = true
+		_assign_materials_to_existing_chunks()
+		_make_generated_nodes_scene_owned()
+		_update_bake_state(GenerationMode.FINAL)
+		print(_last_bake_state)
+	_update_processing_state()
+	if _active_generation_mode == GenerationMode.FINAL:
+		_print_generation_timings()
+	_set_generation_phase(GenerationPhase.IDLE)
+
+
 func _build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirts: bool = false) -> ArrayMesh:
-	_configure_mesh_builder()
 	return _mesh_builder.build_chunk_mesh(chunk_x, chunk_z, display_stride, add_skirts)
 
 
@@ -871,11 +1438,14 @@ func _ensure_active_heightfield() -> bool:
 	var target_resolution := _target_heightfield_resolution()
 	if _active_heightfield.is_valid() and not _heightfield_dirty and _heightfield_resolution == target_resolution:
 		return true
+	var timing_start := _timing_begin()
 	if not _build_source_heightfield(target_resolution):
+		_timing_add("heightfield", timing_start)
 		return false
 	_active_heightfield.copy_from(_source_heightfield)
 	_heightfield_dirty = false
 	_heightfield_resolution = target_resolution
+	_timing_add("heightfield", timing_start)
 	return true
 
 
@@ -884,7 +1454,7 @@ func _build_source_heightfield(total_resolution: int) -> bool:
 	if source_mode == SourceMode.HEIGHTMAP:
 		var image := _load_heightmap_image()
 		if image == null:
-			_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise)
+			_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise, terrain_scale)
 			push_warning("Heightmap could not be loaded. Falling back to procedural noise.")
 			return true
 		if image.get_width() != total_resolution + 1 or image.get_height() != total_resolution + 1:
@@ -892,7 +1462,7 @@ func _build_source_heightfield(total_resolution: int) -> bool:
 		_source_heightfield.create_from_image(total_resolution, terrain_size, height_scale, image, heightmap_flip_x, heightmap_flip_z, heightmap_invert)
 		return true
 
-	_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise)
+	_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise, terrain_scale)
 	return true
 
 
@@ -933,6 +1503,7 @@ func _queue_recolor_existing_chunks() -> void:
 
 func _queue_visual_update() -> void:
 	_update_visual_materials()
+	_update_shader_preview_material()
 	_maybe_externalize_final_visual_resources()
 	if _all_existing_chunks_use_v5_masks():
 		return
@@ -1014,7 +1585,7 @@ func _cancel_recolor() -> void:
 
 
 func _update_processing_state() -> void:
-	set_process(_is_generating or _is_recoloring or _is_generating_collision or _should_process_automatic_lod_focus())
+	set_process(_is_generating or _is_recoloring or _is_generating_collision or _shader_preview_regenerate_pending or _should_process_automatic_lod_focus())
 
 
 func _get_chunk_resolution_for_mode(mode: int) -> int:
@@ -1040,7 +1611,11 @@ func _configure_active_generation_state(mode: int) -> void:
 
 
 func _configure_mesh_builder() -> void:
-	_mesh_builder.configure({
+	_mesh_builder.configure(_get_mesh_builder_settings())
+
+
+func _get_mesh_builder_settings() -> Dictionary:
+	return {
 		"noise": _noise,
 		"heightfield": _active_heightfield,
 		"active_chunk_resolution": _active_chunk_resolution,
@@ -1048,9 +1623,11 @@ func _configure_mesh_builder() -> void:
 		"active_step": _active_step,
 		"active_half_size": _active_half_size,
 		"height_scale": height_scale,
+		"terrain_scale": terrain_scale,
 		"water_enabled": water_enabled,
 		"water_level": water_level,
 		"snow_height": snow_height,
+		"snow_enabled": snow_enabled,
 		"rock_slope_threshold": rock_slope_threshold,
 		"lowland_color": lowland_color,
 		"grass_color": grass_color,
@@ -1059,7 +1636,7 @@ func _configure_mesh_builder() -> void:
 		"rock_color": rock_color,
 		"snow_color": snow_color,
 		"use_v5_masks": _new_meshes_use_v5_masks(),
-	})
+	}
 
 
 func _get_chunks_per_frame() -> int:
@@ -1125,7 +1702,7 @@ func _save_generated_resources(save_lods: bool = true) -> int:
 		chunk.material_override = _get_material_for_chunk(chunk)
 		if save_lods:
 			var coordinates := _get_chunk_coordinates(chunk)
-			var lod_error := _save_chunk_lod_resources(chunk, coordinates.x, coordinates.y)
+			var lod_error := _save_chunk_lod_resources(chunk, coordinates.x, coordinates.y, resource_directory)
 			if lod_error != OK:
 				return lod_error
 
@@ -1136,16 +1713,18 @@ func _save_generated_resources(save_lods: bool = true) -> int:
 			if shape_error != OK:
 				return shape_error
 
-			var saved_shape := load(shape_path) as Shape3D
+			var saved_shape := ResourceLoader.load(shape_path, "Shape3D", ResourceLoader.CACHE_MODE_REPLACE) as Shape3D
 			if saved_shape != null:
+				_configure_terrain_collision_shape(saved_shape)
 				collision_shape.shape = saved_shape
 
 	_apply_collision_visual_visibility()
 	return OK
 
 
-func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int) -> int:
-	var resource_directory := _get_generated_resource_directory()
+func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int, resource_directory: String = "", existing_lod0_mesh: ArrayMesh = null) -> int:
+	if resource_directory.is_empty():
+		resource_directory = _get_generated_resource_directory()
 	var directory_error := DirAccess.make_dir_recursive_absolute(resource_directory)
 	if directory_error != OK:
 		return directory_error
@@ -1153,9 +1732,9 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 	chunk.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
 	for lod_index in LOD_STRIDES.size():
 		var stride: int = LOD_STRIDES[lod_index]
-		var lod_mesh := _build_chunk_mesh(chunk_x, chunk_z, stride, stride > 1)
+		var lod_mesh := existing_lod0_mesh if lod_index == 0 and existing_lod0_mesh != null and _active_display_stride == 1 else _build_chunk_mesh(chunk_x, chunk_z, stride, stride > 1)
 		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
-		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index)
+		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index, resource_directory)
 		var mesh_error := ResourceSaver.save(lod_mesh, mesh_path)
 		if mesh_error != OK:
 			return mesh_error
@@ -1172,8 +1751,39 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 	return OK
 
 
-func _get_lod_mesh_path(chunk_name: String, lod_index: int) -> String:
-	var resource_directory := _get_generated_resource_directory()
+func _save_chunk_lod_resources_from_arrays(chunk: MeshInstance3D, chunk_x: int, chunk_z: int, resource_directory: String, lod_arrays: Array) -> int:
+	if lod_arrays.is_empty():
+		return _save_chunk_lod_resources(chunk, chunk_x, chunk_z, resource_directory, chunk.mesh as ArrayMesh)
+	if resource_directory.is_empty():
+		resource_directory = _get_generated_resource_directory()
+	var directory_error := DirAccess.make_dir_recursive_absolute(resource_directory)
+	if directory_error != OK:
+		return directory_error
+
+	chunk.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
+	for lod_index in mini(LOD_STRIDES.size(), lod_arrays.size()):
+		var lod_mesh := _mesh_builder.create_mesh_from_arrays(lod_arrays[lod_index] as Array)
+		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
+		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index, resource_directory)
+		var mesh_error := ResourceSaver.save(lod_mesh, mesh_path)
+		if mesh_error != OK:
+			return mesh_error
+
+		chunk.set_meta(_get_lod_meta_key(lod_index), mesh_path)
+		if lod_index == 0:
+			var saved_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+			if saved_mesh != null:
+				chunk.mesh = saved_mesh
+
+	chunk.set_meta("terrain_chunk_x", chunk_x)
+	chunk.set_meta("terrain_chunk_z", chunk_z)
+	chunk.set_meta("terrain_current_lod", 0)
+	return OK
+
+
+func _get_lod_mesh_path(chunk_name: String, lod_index: int, resource_directory: String = "") -> String:
+	if resource_directory.is_empty():
+		resource_directory = _get_generated_resource_directory()
 	if lod_index == 0:
 		return "%s/%s_mesh.res" % [resource_directory, chunk_name]
 	return "%s/%s_lod%d_mesh.res" % [resource_directory, chunk_name, lod_index]
@@ -1217,6 +1827,7 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.heightmap_invert = heightmap_invert
 	preset.seed = seed
 	preset.noise_frequency = noise_frequency
+	preset.terrain_scale = terrain_scale
 	preset.octaves = octaves
 	preset.lacunarity = lacunarity
 	preset.gain = gain
@@ -1225,6 +1836,7 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.water_color = water_color
 	preset.water_alpha = water_alpha
 	preset.auto_create_water = auto_create_water
+	preset.snow_enabled = snow_enabled
 	preset.snow_height = snow_height
 	preset.rock_slope_threshold = rock_slope_threshold
 	preset.lowland_color = lowland_color
@@ -1243,6 +1855,7 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.shore_wetness_strength = shore_wetness_strength
 	preset.material_brightness = material_brightness
 	preset.material_contrast = material_contrast
+	preset.bake_preset = bake_preset
 	preset.viewport_quality = viewport_quality
 	preset.viewport_lod_enabled = viewport_lod_enabled
 	preset.lod_profile = lod_profile
@@ -1268,10 +1881,16 @@ func _apply_full_preset_settings(preset: Resource) -> void:
 	heightmap_invert = preset.heightmap_invert
 	seed = preset.seed
 	noise_frequency = preset.noise_frequency
+	var loaded_terrain_scale = preset.get("terrain_scale")
+	if loaded_terrain_scale != null:
+		terrain_scale = float(loaded_terrain_scale)
 	octaves = preset.octaves
 	lacunarity = preset.lacunarity
 	gain = preset.gain
 	_apply_visual_preset_settings(preset)
+	var loaded_bake_preset = preset.get("bake_preset")
+	if loaded_bake_preset != null:
+		bake_preset = int(loaded_bake_preset)
 	viewport_quality = preset.viewport_quality
 	viewport_lod_enabled = preset.viewport_lod_enabled
 	lod_profile = preset.lod_profile
@@ -1291,6 +1910,9 @@ func _apply_visual_preset_settings(preset: Resource) -> void:
 	water_color = preset.water_color
 	water_alpha = preset.water_alpha
 	auto_create_water = preset.auto_create_water
+	var loaded_snow_enabled = preset.get("snow_enabled")
+	if loaded_snow_enabled != null:
+		snow_enabled = bool(loaded_snow_enabled)
 	snow_height = preset.snow_height
 	rock_slope_threshold = preset.rock_slope_threshold
 	lowland_color = preset.lowland_color
@@ -1406,6 +2028,30 @@ func _apply_viewport_culling() -> void:
 		chunk.visible = chunk_center.distance_to(culling_center) <= visible_radius
 		if chunk.visible:
 			_apply_lod_to_chunk(chunk)
+	_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+
+
+func _count_generated_chunks() -> int:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return 0
+	var count := 0
+	for child in chunks_root.get_children():
+		if child is MeshInstance3D:
+			count += 1
+	return count
+
+
+func _count_visible_generated_chunks() -> int:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return 0
+	var count := 0
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and chunk.visible:
+			count += 1
+	return count
 
 
 func _apply_lod_to_chunk(chunk: MeshInstance3D) -> void:
@@ -1564,6 +2210,8 @@ func _build_next_collision_chunks() -> void:
 				push_warning("Could not save generated collision resources. Error code: %d" % save_error)
 		_make_generated_nodes_scene_owned()
 		_apply_collision_visual_visibility()
+		_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+		print(_last_bake_state)
 		_update_processing_state()
 
 
@@ -1645,11 +2293,121 @@ func _get_scene_owner() -> Node:
 	return owner
 
 
+func _use_shader_preview(mode: int) -> bool:
+	return mode == GenerationMode.PREVIEW and preview_backend == PreviewBackend.SHADER
+
+
+func _generate_shader_preview() -> void:
+	var preview := _get_or_create_shader_preview()
+	var preview_mesh := PlaneMesh.new()
+	preview_mesh.size = Vector2(terrain_size, terrain_size)
+	preview_mesh.subdivide_width = shader_preview_subdivisions
+	preview_mesh.subdivide_depth = shader_preview_subdivisions
+	preview.mesh = preview_mesh
+	preview.material_override = _get_or_create_shader_preview_material()
+	preview.visible = true
+	preview.position = Vector3.ZERO
+	_shader_preview_height_texture = _create_shader_preview_height_texture()
+	_update_shader_preview_material()
+
+
+func _get_or_create_shader_preview() -> MeshInstance3D:
+	var preview := get_node_or_null(SHADER_PREVIEW_NAME) as MeshInstance3D
+	if preview == null:
+		preview = MeshInstance3D.new()
+		preview.name = SHADER_PREVIEW_NAME
+		preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		add_child(preview)
+	return preview
+
+
+func _remove_shader_preview() -> void:
+	var preview := get_node_or_null(SHADER_PREVIEW_NAME)
+	if preview == null:
+		return
+	remove_child(preview)
+	preview.queue_free()
+
+
+func _get_or_create_shader_preview_material() -> ShaderMaterial:
+	if _shader_preview_material == null:
+		_shader_preview_material = ShaderMaterial.new()
+		_shader_preview_material.shader = _get_or_create_shader_preview_shader()
+	return _shader_preview_material
+
+
+func _get_or_create_shader_preview_shader() -> Shader:
+	if _shader_preview_shader == null:
+		_shader_preview_shader = Shader.new()
+	_shader_preview_shader.code = SHADER_PREVIEW_CODE
+	return _shader_preview_shader
+
+
+func _create_shader_preview_height_texture() -> Texture2D:
+	if not _active_heightfield.is_valid():
+		return null
+
+	var texture_resolution := clampi(shader_preview_texture_resolution, 64, 1024)
+	var image_size := texture_resolution + 1
+	var image := Image.create(image_size, image_size, false, Image.FORMAT_RF)
+	var min_height := _active_heightfield.get_min_height()
+	var max_height := _active_heightfield.get_max_height()
+	var height_range := maxf(max_height - min_height, 0.0001)
+
+	for z in image_size:
+		var source_z := float(z) / float(texture_resolution) * float(_active_heightfield.height - 1)
+		for x in image_size:
+			var source_x := float(x) / float(texture_resolution) * float(_active_heightfield.width - 1)
+			var height_value := _active_heightfield.sample_grid_bilinear(source_x, source_z)
+			var normalized_height := clampf((height_value - min_height) / height_range, 0.0, 1.0)
+			image.set_pixel(x, z, Color(normalized_height, 0.0, 0.0, 1.0))
+
+	return ImageTexture.create_from_image(image)
+
+
+func _update_shader_preview_material() -> void:
+	var preview := get_node_or_null(SHADER_PREVIEW_NAME) as MeshInstance3D
+	if preview == null or preview.material_override == null:
+		return
+	var material := preview.material_override as ShaderMaterial
+	if material == null:
+		return
+	if _shader_preview_height_texture == null:
+		_shader_preview_height_texture = _create_shader_preview_height_texture()
+	if _shader_preview_height_texture == null:
+		return
+
+	var texture_resolution := clampi(shader_preview_texture_resolution, 64, 1024)
+	material.shader = _get_or_create_shader_preview_shader()
+	material.set_shader_parameter("height_texture", _shader_preview_height_texture)
+	material.set_shader_parameter("height_min", _active_heightfield.get_min_height())
+	material.set_shader_parameter("height_max", _active_heightfield.get_max_height())
+	material.set_shader_parameter("terrain_size", terrain_size)
+	material.set_shader_parameter("height_texel_size", 1.0 / float(texture_resolution))
+	material.set_shader_parameter("water_enabled", water_enabled)
+	material.set_shader_parameter("snow_enabled", snow_enabled)
+	material.set_shader_parameter("water_level", water_level)
+	material.set_shader_parameter("height_scale", height_scale)
+	material.set_shader_parameter("snow_height", snow_height)
+	material.set_shader_parameter("rock_slope_threshold", rock_slope_threshold)
+	material.set_shader_parameter("lowland_color", lowland_color)
+	material.set_shader_parameter("grass_color", grass_color)
+	material.set_shader_parameter("shore_color", shore_color)
+	material.set_shader_parameter("seabed_color", seabed_color)
+	material.set_shader_parameter("rock_color", rock_color)
+	material.set_shader_parameter("snow_color", snow_color)
+	material.set_shader_parameter("shore_wetness_strength", shore_wetness_strength)
+	material.set_shader_parameter("material_brightness", material_brightness)
+	material.set_shader_parameter("material_contrast", material_contrast)
+
+
 func _update_water_plane() -> void:
 	if not is_inside_tree():
 		return
+	var timing_start := _timing_begin()
 	if water_enabled and water_node_path.is_empty() and not auto_create_water:
 		_remove_water_plane()
+		_timing_add("water_update", timing_start)
 		return
 	if not water_enabled:
 		_remove_water_plane()
@@ -1661,10 +2419,12 @@ func _update_water_plane() -> void:
 				"water_level": water_level,
 				"generated_resource_directory": _get_generated_resource_directory(),
 			})
+		_timing_add("water_update", timing_start)
 		return
 
 	var water_plane: Node = _get_water_node(true)
 	if water_plane == null:
+		_timing_add("water_update", timing_start)
 		return
 	water_plane.call("configure_from_terrain", {
 		"water_enabled": water_enabled,
@@ -1672,6 +2432,7 @@ func _update_water_plane() -> void:
 		"water_level": water_level,
 		"generated_resource_directory": _get_generated_resource_directory(),
 	})
+	_timing_add("water_update", timing_start)
 
 
 func _remove_water_plane() -> void:
@@ -1721,6 +2482,15 @@ func _get_or_create_chunks_root() -> Node3D:
 	return chunks_root
 
 
+func _clear_chunk_nodes(chunks_root: Node) -> void:
+	for child in chunks_root.get_children():
+		var child_3d := child as Node3D
+		if child_3d != null:
+			child_3d.visible = false
+		chunks_root.remove_child(child)
+		child.queue_free()
+
+
 func _create_chunk_mesh_instance(chunk_x: int, chunk_z: int, material: Material) -> MeshInstance3D:
 	var chunk_mesh_instance := MeshInstance3D.new()
 	chunk_mesh_instance.name = "TerrainChunk_%02d_%02d" % [chunk_x, chunk_z]
@@ -1750,7 +2520,7 @@ func _add_collision_from_existing_mesh(chunk_mesh_instance: MeshInstance3D) -> v
 	var collision_shape := CollisionShape3D.new()
 	collision_shape.name = "CollisionShape"
 	collision_shape.visible = collision_visuals_visible
-	collision_shape.shape = collision_mesh.create_trimesh_shape()
+	collision_shape.shape = _create_terrain_collision_shape(collision_mesh)
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
 
@@ -1768,16 +2538,40 @@ func _add_chunk_collision(chunk_mesh_instance: MeshInstance3D, chunk_x: int, chu
 	collision_shape.name = "CollisionShape"
 	collision_shape.visible = collision_visuals_visible
 	var collision_stride: int = LOD_STRIDES[clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)]
-	collision_shape.shape = _build_chunk_mesh(chunk_x, chunk_z, collision_stride, collision_stride > 1).create_trimesh_shape()
+	collision_shape.shape = _create_terrain_collision_shape(_build_chunk_mesh(chunk_x, chunk_z, collision_stride, collision_stride > 1))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
+
+
+func _create_terrain_collision_shape(mesh: ArrayMesh) -> Shape3D:
+	var shape := mesh.create_trimesh_shape()
+	_configure_terrain_collision_shape(shape)
+	return shape
+
+
+func _configure_terrain_collision_shape(shape: Shape3D) -> void:
+	if shape == null:
+		return
+	if shape is ConcavePolygonShape3D:
+		(shape as ConcavePolygonShape3D).backface_collision = true
+
+
+func _configure_existing_collision_shapes() -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+
+	for chunk in chunks_root.get_children():
+		var collision_shape := chunk.get_node_or_null("CollisionBody/CollisionShape") as CollisionShape3D
+		if collision_shape != null:
+			_configure_terrain_collision_shape(collision_shape.shape)
 
 
 func _get_collision_mesh_for_chunk(chunk: MeshInstance3D) -> ArrayMesh:
 	var lod_index := clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
 	if not mesh_path.is_empty():
-		var saved_lod_mesh := load(mesh_path) as ArrayMesh
+		var saved_lod_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
 		if saved_lod_mesh != null:
 			return saved_lod_mesh
 
@@ -1828,6 +2622,7 @@ func _configure_material_manager() -> void:
 		"water_level": water_level,
 		"height_scale": height_scale,
 		"snow_height": snow_height,
+		"snow_enabled": snow_enabled,
 		"rock_slope_threshold": rock_slope_threshold,
 		"lowland_color": lowland_color,
 		"grass_color": grass_color,
@@ -1886,11 +2681,16 @@ func _reset_visual_noise_textures() -> void:
 
 
 func _save_visual_resources(resource_directory: String) -> int:
+	var timing_start := _timing_begin()
 	_configure_material_manager()
 	var terrain_material_error: int = _material_manager.save_visual_resources(resource_directory)
 	if terrain_material_error != OK:
+		_timing_add("visual_resource_save", timing_start)
 		return terrain_material_error
 	var water_plane: Node = _get_water_node(false)
 	if water_plane == null:
+		_timing_add("visual_resource_save", timing_start)
 		return OK
-	return int(water_plane.call("save_visual_resources", resource_directory))
+	var water_error := int(water_plane.call("save_visual_resources", resource_directory))
+	_timing_add("visual_resource_save", timing_start)
+	return water_error

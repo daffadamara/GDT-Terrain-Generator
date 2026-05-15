@@ -9,8 +9,10 @@ var active_total_resolution := 64
 var active_step := 1.0
 var active_half_size := 32.0
 var height_scale := 5.0
+var terrain_scale := 1.0
 var water_enabled := true
 var water_level := 0.0
+var snow_enabled := true
 var snow_height := 5.0
 var rock_slope_threshold := 0.44
 var lowland_color := Color(0.15, 0.21, 0.09)
@@ -30,8 +32,10 @@ func configure(settings: Dictionary) -> void:
 	active_step = float(settings.get("active_step", active_step))
 	active_half_size = float(settings.get("active_half_size", active_half_size))
 	height_scale = float(settings.get("height_scale", height_scale))
+	terrain_scale = maxf(0.1, float(settings.get("terrain_scale", terrain_scale)))
 	water_enabled = bool(settings.get("water_enabled", water_enabled))
 	water_level = float(settings.get("water_level", water_level))
+	snow_enabled = bool(settings.get("snow_enabled", snow_enabled))
 	snow_height = float(settings.get("snow_height", snow_height))
 	rock_slope_threshold = float(settings.get("rock_slope_threshold", rock_slope_threshold))
 	lowland_color = settings.get("lowland_color", lowland_color) as Color
@@ -44,6 +48,16 @@ func configure(settings: Dictionary) -> void:
 
 
 func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirts: bool = false) -> ArrayMesh:
+	return create_mesh_from_arrays(build_chunk_mesh_arrays(chunk_x, chunk_z, display_stride, add_skirts))
+
+
+func create_mesh_from_arrays(arrays: Array) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func build_chunk_mesh_arrays(chunk_x: int, chunk_z: int, display_stride: int, add_skirts: bool = false) -> Array:
 	var local_grid_coordinates := _get_display_grid_coordinates(display_stride)
 	var vertices_per_side := local_grid_coordinates.size()
 	var vertex_total := vertices_per_side * vertices_per_side
@@ -59,9 +73,7 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 			var global_x := start_grid_x + local_grid_x
 			var global_z := start_grid_z + local_grid_z
 			var vertex_index := _vertex_index(display_x, display_z, vertices_per_side)
-			var world_x := float(global_x) * active_step - active_half_size
-			var world_z := float(global_z) * active_step - active_half_size
-			heights[vertex_index] = sample_height(world_x, world_z)
+			heights[vertex_index] = sample_height_grid(global_x, global_z)
 
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -82,7 +94,7 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 			var world_x := float(global_x) * active_step - active_half_size
 			var world_z := float(global_z) * active_step - active_half_size
 			var height := heights[vertex_index]
-			var normal := _sample_cached_normal(display_x, display_z, vertices_per_side, heights, world_x, world_z, display_stride)
+			var normal := _sample_cached_normal(display_x, display_z, vertices_per_side, heights, global_x, global_z, display_stride)
 
 			vertices[vertex_index] = Vector3(world_x, height, world_z)
 			normals[vertex_index] = normal
@@ -107,6 +119,8 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 			index_write_position = _write_triangle(indices, index_write_position, top_right, bottom_right, bottom_left)
 
 	if add_skirts:
+		if index_write_position < indices.size():
+			indices.resize(index_write_position)
 		_append_lod_edge_stitching(vertices, normals, uvs, colors, indices, chunk_x, chunk_z, display_stride)
 
 	var arrays := []
@@ -117,9 +131,7 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
+	return arrays
 
 
 func sample_height(world_x: float, world_z: float) -> float:
@@ -127,7 +139,15 @@ func sample_height(world_x: float, world_z: float) -> float:
 		return heightfield.sample_world(world_x, world_z)
 	if noise == null:
 		return 0.0
-	return noise.get_noise_2d(world_x, world_z) * height_scale
+	return noise.get_noise_2d(world_x / terrain_scale, world_z / terrain_scale) * height_scale
+
+
+func sample_height_grid(grid_x: int, grid_z: int) -> float:
+	if heightfield != null and heightfield.is_valid():
+		return heightfield.sample_grid(grid_x, grid_z)
+	var world_x := float(grid_x) * active_step - active_half_size
+	var world_z := float(grid_z) * active_step - active_half_size
+	return sample_height(world_x, world_z)
 
 
 func color_for_terrain(height: float, normal: Vector3) -> Color:
@@ -150,7 +170,7 @@ func color_for_terrain(height: float, normal: Vector3) -> Color:
 	color = color.lerp(rock_color, rock_amount)
 
 	var snow_blend_width := maxf(height_scale * 0.12, 0.35)
-	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height)
+	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height) if snow_enabled else 0.0
 	return color.lerp(snow_color, snow_amount)
 
 
@@ -168,7 +188,7 @@ func mask_for_terrain(height: float, normal: Vector3) -> Color:
 			shore_or_seabed = 1.0 - _smoothstep(0.0, shore_width, height - water_level)
 
 	var snow_blend_width := maxf(height_scale * 0.12, 0.35)
-	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height)
+	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height) if snow_enabled else 0.0
 	return Color(normalized_height, slope, clampf(shore_or_seabed, 0.0, 1.0), snow_amount)
 
 
@@ -177,15 +197,15 @@ func _sample_cached_normal(
 	local_z: int,
 	vertices_per_side: int,
 	heights: PackedFloat32Array,
-	world_x: float,
-	world_z: float,
+	grid_x: int,
+	grid_z: int,
 	display_stride: int
 ) -> Vector3:
 	var sample_distance := active_step * float(display_stride)
-	var left_height := _get_cached_or_sampled_height(local_x - 1, local_z, vertices_per_side, heights, world_x - sample_distance, world_z)
-	var right_height := _get_cached_or_sampled_height(local_x + 1, local_z, vertices_per_side, heights, world_x + sample_distance, world_z)
-	var back_height := _get_cached_or_sampled_height(local_x, local_z - 1, vertices_per_side, heights, world_x, world_z - sample_distance)
-	var forward_height := _get_cached_or_sampled_height(local_x, local_z + 1, vertices_per_side, heights, world_x, world_z + sample_distance)
+	var left_height := _get_cached_or_sampled_height(local_x - 1, local_z, vertices_per_side, heights, grid_x - display_stride, grid_z)
+	var right_height := _get_cached_or_sampled_height(local_x + 1, local_z, vertices_per_side, heights, grid_x + display_stride, grid_z)
+	var back_height := _get_cached_or_sampled_height(local_x, local_z - 1, vertices_per_side, heights, grid_x, grid_z - display_stride)
+	var forward_height := _get_cached_or_sampled_height(local_x, local_z + 1, vertices_per_side, heights, grid_x, grid_z + display_stride)
 	return Vector3(left_height - right_height, sample_distance * 2.0, back_height - forward_height).normalized()
 
 
@@ -194,12 +214,12 @@ func _get_cached_or_sampled_height(
 	local_z: int,
 	vertices_per_side: int,
 	heights: PackedFloat32Array,
-	world_x: float,
-	world_z: float
+	grid_x: int,
+	grid_z: int
 ) -> float:
 	if local_x >= 0 and local_x < vertices_per_side and local_z >= 0 and local_z < vertices_per_side:
 		return heights[_vertex_index(local_x, local_z, vertices_per_side)]
-	return sample_height(world_x, world_z)
+	return sample_height_grid(grid_x, grid_z)
 
 
 func _get_display_grid_coordinates(display_stride: int) -> PackedInt32Array:
@@ -419,17 +439,16 @@ func _lerp_grid(from_grid: Vector2i, to_grid: Vector2i, weight: float) -> Vector
 func _terrain_vertex_from_grid(grid_x: int, grid_z: int) -> Vector3:
 	var world_x := float(grid_x) * active_step - active_half_size
 	var world_z := float(grid_z) * active_step - active_half_size
-	return Vector3(world_x, sample_height(world_x, world_z), world_z)
+	return Vector3(world_x, sample_height_grid(grid_x, grid_z), world_z)
 
 
 func _sample_normal_for_grid(grid_x: int, grid_z: int, sample_stride: int) -> Vector3:
 	var sample_distance := active_step * float(maxi(1, sample_stride))
-	var world_x := float(grid_x) * active_step - active_half_size
-	var world_z := float(grid_z) * active_step - active_half_size
-	var left_height := sample_height(world_x - sample_distance, world_z)
-	var right_height := sample_height(world_x + sample_distance, world_z)
-	var back_height := sample_height(world_x, world_z - sample_distance)
-	var forward_height := sample_height(world_x, world_z + sample_distance)
+	var grid_stride := maxi(1, sample_stride)
+	var left_height := sample_height_grid(grid_x - grid_stride, grid_z)
+	var right_height := sample_height_grid(grid_x + grid_stride, grid_z)
+	var back_height := sample_height_grid(grid_x, grid_z - grid_stride)
+	var forward_height := sample_height_grid(grid_x, grid_z + grid_stride)
 	return Vector3(left_height - right_height, sample_distance * 2.0, back_height - forward_height).normalized()
 
 

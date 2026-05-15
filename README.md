@@ -1,17 +1,17 @@
 # GDT Terrain
 
-Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` scene. It generates chunked terrain from noise, supports high-resolution final builds, and includes procedural terrain materials, water, distance LOD, culling, and lightweight collision controls.
+Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` scene. It generates chunked terrain from noise, supports high-resolution final builds, and includes procedural terrain materials, water, distance LOD, culling, and game-ready collision bake presets.
 
 ## Features
 
 - Chunked static terrain generation with configurable terrain size, per-chunk resolution, and chunk count.
 - Fast preview mode and progressive final generation to keep the editor responsive.
-- Noise controls for seed, frequency, octaves, lacunarity, gain, and height scale.
+- Noise controls for seed, terrain scale, frequency, octaves, lacunarity, gain, and height scale.
 - Shared heightfield pipeline with noise or imported 16-bit PNG heightmaps.
 - Native Godot `.tres` terrain presets for saving and loading styles/settings.
 - Heightmap export to grayscale PNG.
 - Procedural visual material using generated terrain masks and self-contained noise textures.
-- Editable seabed, shore, grass, lowland, rock, and snow colors without rebuilding V5 terrain.
+- Editable seabed, shore, grass, lowland, rock, and optional snow colors without rebuilding V5 terrain.
 - Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, and optional refraction.
 - Legacy vertex-color fallback for older generated V4 chunks.
 - External binary `.res` mesh saving so large final terrain does not bloat the text scene.
@@ -22,6 +22,7 @@ Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` 
   - LOD 3: eighth resolution
 - Automatic camera or target-driven LOD focus.
 - Distance culling and LOD profile presets for viewport performance.
+- Bake presets for visual-only output, game-ready all-terrain collision, and high-accuracy collision.
 - Progressive collision generation with coverage and quality controls.
 - Preview lighting helper for quick terrain inspection in the editor.
 
@@ -36,8 +37,9 @@ Procedural terrain generator for Godot 4.6, built as an editor-friendly `@tool` 
 2. Open `node_3d.tscn`.
 3. Select the root `Node3D`.
 4. Tune terrain settings in the Inspector.
-5. Use `Generate Preview` while shaping the terrain.
-6. Use `Generate Final` when you want to lock and save the generated terrain.
+5. Pick a `Bake Preset`.
+6. Use `Generate Preview` while shaping the terrain.
+7. Use `Generate Final` when you want to lock and save the generated terrain.
 
 The default terrain settings are chosen for a good first result:
 
@@ -48,6 +50,7 @@ The default terrain settings are chosen for a good first result:
 | Chunks Per Side | 1 |
 | Height Scale | 5 |
 | Seed | 1345 |
+| Terrain Scale | 1 |
 | Noise Frequency | 0.032 |
 | Octaves | 7 |
 | Lacunarity | 2.1 |
@@ -64,7 +67,18 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 
 ### Preview
 
-`Generate Preview` builds a lower-detail terrain for fast iteration. With `Auto Performance Settings` enabled, the preview resolution is chosen automatically. Preview chunks are editor-transient and are not saved into `node_3d.tscn`, which keeps the scene file small.
+`Generate Preview` builds a lower-detail terrain for fast iteration. With `Auto Performance Settings` enabled, the preview resolution is chosen automatically. Preview chunks are editor-transient and are not saved into `node_3d.tscn`, which keeps the scene file small. Starting a final bake clears the active preview first.
+
+### Bake Presets
+
+`Bake Preset` controls the normal final-output intent before the lower-level collision controls:
+
+- `Visual Only`: baked meshes, LODs, materials, and water resources without collision.
+- `Game Ready`: baked visuals plus collision on every chunk at half resolution. This is the default playable terrain bake.
+- `High Accuracy`: baked visuals plus collision on every chunk at full resolution.
+- `Custom`: appears when advanced collision controls no longer match one of the presets.
+
+`Bake State` reports whether the current workflow is preview-only, visual-only, game-ready, or testing-only.
 
 ### Final
 
@@ -73,6 +87,7 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 - `final_terrain_locked` becomes `true`.
 - Generated chunk nodes are saved with the scene.
 - Mesh, material, shader, and generated noise resources are saved to `generated_terrain/`.
+- Collision shape resources are saved when the active bake preset or collision settings include collision.
 - Terrain will not regenerate from preview settings until `Clear Generated Terrain` is used.
 
 ### Terrain Source
@@ -83,6 +98,10 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 - `Heightmap` imports a PNG heightmap and resamples it to the active terrain grid.
 
 Heightmap import replaces procedural noise shape data. `Height Scale` still controls the vertical amplitude, and imported values are mapped into the terrain height range. Flip and invert controls help match heightmaps from third-party terrain tools.
+
+### Terrain Pattern
+
+`Terrain Scale` zooms the procedural noise pattern without changing the physical terrain size. Larger values make broader continents and wider mountain systems; smaller values reveal tighter local detail. `Noise Frequency` remains available as the lower-level noise density control.
 
 ### Presets
 
@@ -96,7 +115,7 @@ Preset actions live beside `Preset Path` in the Inspector so file workflow stays
 
 `Export Heightmap` writes the current active heightfield to `Export Heightmap Path` as a grayscale PNG.
 
-The main terrain actions are grouped under `Terrain Actions`: generate a preview, generate a locked final terrain, cancel a running build, or clear generated terrain. Less common maintenance commands use `Selected Utility` plus `Run Selected Utility` under the advanced controls.
+The main terrain actions are grouped under `Terrain Actions`: generate a preview, generate a locked final terrain, cancel a running build, or clear generated terrain. Less common maintenance commands use `Selected Utility` plus `Run Selected Utility` under the advanced controls. `Reveal All Chunks` disables viewport culling when a full bake is complete but only nearby chunks are visible.
 
 ### Editing Environment After Final
 
@@ -110,9 +129,11 @@ Water is provided by a reusable `ProceduralWater3D` node. The terrain generator 
 
 Top-level water controls stay in the terrain `Environment` section for quick integration: `Water Enabled`, `Water Level`, `Water Color`, `Water Alpha`, `Auto Create Water`, and `Water Node Path`.
 
-Select the `WaterPlane` node directly for advanced water controls such as quality preset, wave strength, foam strength, refraction strength, shallow/mid/deep colors, wave directions, normal and foam tiling, depth fade, shoreline alpha fade, shoreline foam width, and mesh subdivisions. The water shader renders as a one-sided surface to avoid transparent backface artifacts when animated waves are tall. The default quality is `High Fidelity`; lower it to `Balanced` or `Lightweight` if the viewport needs more FPS.
+Select the `WaterPlane` node directly for water look and motion controls. Start with `Motion Preset`: `Coastal` is the default restrained bay/island style, `Calm Lake` is subtle, `Windy` is stronger, and `Flat Visual` keeps the depth/color/refraction look without visible wave motion.
 
-Once a `ProceduralWater3D` node exists, it owns its visual water tuning. The terrain generator still syncs integration values such as enabled state, size, level, and resource directory, but it does not overwrite the water node's color, alpha, wave, foam, or subdivision settings on reload.
+Advanced water controls include wave strength, swell scale, ripple strength, ripple scale, surface distortion, foam strength, refraction strength, shallow/mid/deep colors, wave directions, depth fade, shoreline alpha fade, shoreline foam width, and mesh subdivisions. Legacy `Wave Scale` and `Normal Tiling` remain available for older scenes, but `Swell Scale`, `Ripple Scale`, and `Ripple Strength` are the preferred controls. The water shader renders as a one-sided surface to avoid transparent backface artifacts when animated waves are tall. The default quality is `High Fidelity`; lower it to `Balanced` or `Lightweight` if the viewport needs more FPS.
+
+Once a `ProceduralWater3D` node exists, it owns its visual water tuning. The terrain generator still syncs integration values such as enabled state, size, level, and resource directory, but it does not overwrite the water node's color, alpha, motion preset, wave, foam, or subdivision settings on reload. Water is visual-only; it does not add buoyancy, flow maps, or gameplay water physics.
 
 ### Visual Material
 
@@ -123,6 +144,7 @@ Useful controls:
 - `Macro Variation Strength` and `Macro Variation Scale` for broad natural color breakup.
 - `Detail Noise Strength` and `Detail Noise Scale` for fine surface variation.
 - `Rock Detail Strength` and `Snow Detail Strength` for material-specific contrast.
+- `Snow Enabled` to turn snow blending off without changing the stored snow color or height.
 - `Shore Wetness Strength` for darker damp shorelines near the water level.
 - `Material Brightness` and `Material Contrast` for final look tuning.
 
@@ -146,6 +168,9 @@ LOD controls:
 - `LOD Profile`: controls how aggressively lower LODs are used.
 - `Viewport Quality`: caps the best visual LOD.
 - `Visible Radius`: hides chunks outside the inspection area.
+- `Visible Chunks`: status count showing how many generated chunks are currently visible after viewport culling.
+
+If `Generated Chunks` equals `Total Chunks` but the viewport only shows part of the terrain, viewport culling is hiding the rest. Disable `Viewport Culling Enabled`, increase `Visible Radius`, move `Culling Center`, or run the `Reveal All Chunks` utility.
 
 Profile behavior:
 
@@ -155,7 +180,7 @@ Profile behavior:
 
 ## Collision
 
-Collision is separate from visual LOD and is disabled by default for editor performance.
+Collision is separate from visual LOD. For game-ready output, use the `Game Ready` bake preset, which sets `Collision Mode` to `Final Only`, `Collision Coverage` to `All Chunks`, and `Collision Quality` to `Half`.
 
 Collision controls:
 
@@ -176,7 +201,17 @@ Collision controls:
 - `Collision Chunks Per Frame`
 - `Collision Visuals Visible`
 
-Use `Generate Collision` after generating final terrain if you want physics without rebuilding the terrain. The default collision setup uses quarter-resolution collision near the focus point to avoid generating expensive physics for every chunk.
+Use `Generate Collision` after generating final terrain if you want to rebuild physics without rebuilding the terrain. `Near Center` and `Visible Chunks` are useful editor/testing coverage modes, but they are not safe final playable-terrain defaults because a player can leave the generated collision area.
+
+## Game-Ready Demo
+
+`game_ready_demo.tscn` is a clean test scene with a `GdtTerrain3D` terrain node, a basic `CharacterBody3D`, camera, and light. It does not commit generated terrain binaries. To test a playable bake:
+
+1. Open `game_ready_demo.tscn`.
+2. Select `Terrain`.
+3. Keep `Bake Preset` set to `Game Ready`.
+4. Click `Generate Final`.
+5. Press Play and walk the character across chunk boundaries.
 
 ## Generated Files
 
@@ -193,6 +228,8 @@ For open-source distribution:
 | Path | Purpose |
 | --- | --- |
 | `node_3d.gd` | Main editor-facing terrain generator script and Inspector workflow. |
+| `game_ready_demo.tscn` | Playable proof scene for game-ready baked terrain collision. |
+| `demo_player_controller.gd` | Minimal WASD/mouse `CharacterBody3D` controller used by the demo scene. |
 | `terrain_heightfield.gd` | Shared noise/imported height data used by meshes, collision, and export. |
 | `terrain_mesh_builder.gd` | Chunk mesh, LOD mesh, skirt, normal, and terrain mask generation. |
 | `terrain_material_manager.gd` | Procedural terrain shaders, materials, and generated noise resources. |

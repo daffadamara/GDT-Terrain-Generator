@@ -16,6 +16,7 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
 uniform bool use_procedural_detail = true;
 uniform bool water_enabled = true;
+uniform bool snow_enabled = true;
 uniform sampler2D macro_noise_texture;
 uniform sampler2D detail_noise_texture;
 uniform vec4 lowland_color : source_color = vec4(0.15, 0.21, 0.09, 1.0);
@@ -81,7 +82,7 @@ void fragment() {
 
 	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), slope);
 	float snow_blend_width = max(height_scale * 0.12, 0.35);
-	float snow_amount = max(soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height), baked_snow_mask * 0.20);
+	float snow_amount = snow_enabled ? max(soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height), baked_snow_mask * 0.20) : 0.0;
 
 	if (use_procedural_detail) {
 		float macro_noise = texture(macro_noise_texture, world_position.xz * macro_variation_scale).r * 2.0 - 1.0;
@@ -112,6 +113,7 @@ var seed := 1345
 var water_enabled := true
 var water_level := 0.0
 var height_scale := 5.0
+var snow_enabled := true
 var snow_height := 5.0
 var rock_slope_threshold := 0.44
 var lowland_color := Color(0.15, 0.21, 0.09)
@@ -138,6 +140,7 @@ var _terrain_shader: Shader
 var _terrain_macro_noise_texture: Texture2D
 var _terrain_detail_noise_texture: Texture2D
 var _saving_visual_resources := false
+var _terrain_shader_code_applied := false
 
 
 func configure(settings: Dictionary) -> void:
@@ -146,6 +149,7 @@ func configure(settings: Dictionary) -> void:
 	water_enabled = bool(settings.get("water_enabled", water_enabled))
 	water_level = float(settings.get("water_level", water_level))
 	height_scale = float(settings.get("height_scale", height_scale))
+	snow_enabled = bool(settings.get("snow_enabled", snow_enabled))
 	snow_height = float(settings.get("snow_height", snow_height))
 	rock_slope_threshold = float(settings.get("rock_slope_threshold", rock_slope_threshold))
 	lowland_color = settings.get("lowland_color", lowland_color) as Color
@@ -258,7 +262,10 @@ func _get_or_create_terrain_shader() -> Shader:
 		_terrain_shader = _load_external_shader(TERRAIN_PROCEDURAL_SHADER_PATH)
 		if _terrain_shader == null:
 			_terrain_shader = Shader.new()
-			_terrain_shader.code = TERRAIN_SHADER_CODE
+		_terrain_shader_code_applied = false
+	if not _terrain_shader_code_applied or _terrain_shader.code != TERRAIN_SHADER_CODE:
+		_terrain_shader.code = TERRAIN_SHADER_CODE
+		_terrain_shader_code_applied = true
 	return _terrain_shader
 
 
@@ -269,6 +276,7 @@ func _update_terrain_shader_parameters() -> void:
 		material.shader = _get_or_create_terrain_shader()
 		material.set_shader_parameter("use_procedural_detail", material == _procedural_terrain_material and procedural_material_enabled)
 		material.set_shader_parameter("water_enabled", water_enabled)
+		material.set_shader_parameter("snow_enabled", snow_enabled)
 		material.set_shader_parameter("macro_noise_texture", _get_or_create_terrain_macro_noise_texture())
 		material.set_shader_parameter("detail_noise_texture", _get_or_create_terrain_detail_noise_texture())
 		material.set_shader_parameter("lowland_color", lowland_color)
@@ -365,4 +373,5 @@ func _reload_saved_visual_resources() -> void:
 	_terrain_shader = _load_external_shader(TERRAIN_PROCEDURAL_SHADER_PATH)
 	_procedural_terrain_material = _load_external_shader_material(TERRAIN_PROCEDURAL_MATERIAL_PATH)
 	_legacy_terrain_material = _load_external_legacy_terrain_material()
+	_terrain_shader_code_applied = false
 	update_materials()

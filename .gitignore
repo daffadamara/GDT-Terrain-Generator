@@ -15,3 +15,4 @@ Thumbs.db
 # Generated terrain can be very large.
 # Keep it tracked only if you want to ship a ready-made sample terrain.
 # Consider Git LFS for generated_terrain/*.res.
+generated_terrain/

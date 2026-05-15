@@ -1,0 +1,68 @@
+[gd_scene load_steps=7 format=3 uid="uid://b78oajo7ncp5b"]
+
+[ext_resource type="Script" uid="uid://baflqji2nt3c0" path="res://node_3d.gd" id="1_vjj5o"]
+[ext_resource type="Script" uid="uid://bmhla7bat01wb" path="res://demo_player_controller.gd" id="2_bm88o"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_0b85x"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_jnibw"]
+
+[sub_resource type="Environment" id="Environment_wuxys"]
+background_mode = 1
+background_color = Color(0.58, 0.64, 0.7, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.68, 0.72, 0.76, 1)
+ambient_light_energy = 0.55
+
+[node name="GameReadyDemo" type="Node3D" unique_id=1297062332]
+
+[node name="Terrain" type="Node3D" parent="." unique_id=50103755]
+script = ExtResource("1_vjj5o")
+terrain_size = 256.0
+chunks_per_side = 4
+height_scale = 14.8
+seed = 6584
+terrain_scale = 6.0
+lacunarity = 2.2
+water_color = Color(0.1764706, 0.46666667, 0.40392157, 1)
+snow_enabled = false
+snow_height = 11.0
+rock_slope_threshold = 0.24
+macro_variation_strength = 0.1
+detail_noise_strength = 0.2
+detail_noise_scale = 1.0
+material_brightness = 1.6
+material_contrast = 1.04
+bake_preset = 1
+generation_worker_count = 4
+lod_profile = 0
+lod_target_path = NodePath("../Player")
+visible_radius = 256.0
+
+[node name="TerrainChunks" type="Node3D" parent="Terrain" unique_id=1807881365]
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=2087585995]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 18, 0)
+script = ExtResource("2_bm88o")
+move_speed = 10.0
+jump_velocity = 20.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=14744459]
+shape = SubResource("CapsuleShape3D_0b85x")
+
+[node name="BodyPreview" type="MeshInstance3D" parent="Player" unique_id=1847227213]
+mesh = SubResource("CapsuleMesh_jnibw")
+
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=481291761]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 0.65, 2.4)
+current = true
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=229652228]
+transform = Transform3D(0.829769, 0.34202, -0.44097, 0, 0.790689, 0.612218, 0.558108, -0.508013, 0.656458, 0, 0, 0)
+light_energy = 1.25
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1975722017]
+environment = SubResource("Environment_wuxys")

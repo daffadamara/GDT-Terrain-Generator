@@ -6,6 +6,15 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- `GdtTerrain3D` class name as the future public terrain node identity.
+- `Bake Preset` workflow choices for `Visual Only`, `Game Ready`, `High Accuracy`, and `Custom`.
+- Read-only `Bake State` summary for preview-only, visual-only, playable, and testing-collision workflows.
+- `game_ready_demo.tscn` with a simple `CharacterBody3D` proof scene for walking on baked terrain collision.
+- `Terrain Scale` noise zoom control for broader continent-scale landforms without tiny frequency values.
+- `Visible Chunks` status and `Reveal All Chunks` utility to make viewport culling obvious after a complete bake.
+- `Snow Enabled` toggle for disabling snow blending while keeping snow settings available.
+- Water motion presets: `Calm Lake`, `Coastal`, `Windy`, `Flat Visual`, and `Custom`.
+- Safer water motion controls for swell scale, crossing swell, ripple strength, ripple scale, and surface distortion.
 - Shared heightfield pipeline for noise, imported heightmaps, mesh generation, collision, and export.
 - `Terrain Source` controls for replacing procedural noise with an imported PNG heightmap.
 - Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, refraction controls, and water quality presets.
@@ -17,6 +26,11 @@ All notable changes to this project are documented here.
 
 ### Changed
 
+- Game-ready collision intent now defaults to final-only, all chunks, half quality.
+- Final generation now clears active mesh or shader preview nodes before building final chunks.
+- Saved LOD and collision resources now reload with cache replacement so regenerated terrain scale/settings cannot reuse stale collision meshes.
+- Water shader code is no longer reassigned on every material slider update, making water controls such as alpha more responsive.
+- Water motion now separates broad directional swell from fine ripple normals and makes foam mostly shoreline/depth driven by default.
 - Terrain mesh generation now samples from the active heightfield instead of calling noise directly.
 - Water shader, material, mesh, and resource saving now live outside the terrain material manager.
 - Terrain water controls now configure an auto-created or assigned `ProceduralWater3D` node without overwriting existing water visual tuning on scene reload.

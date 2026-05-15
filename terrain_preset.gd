@@ -18,6 +18,7 @@ class_name TerrainPreset
 @export_group("Terrain Pattern")
 @export var seed := 1345
 @export var noise_frequency := 0.032
+@export var terrain_scale := 1.0
 @export var octaves := 7
 @export var lacunarity := 2.1
 @export var gain := 0.42
@@ -28,6 +29,7 @@ class_name TerrainPreset
 @export var water_color := Color(0.09, 0.25, 0.36, 1.0)
 @export var water_alpha := 0.8
 @export var auto_create_water := true
+@export var snow_enabled := true
 @export var snow_height := 5.0
 @export var rock_slope_threshold := 0.44
 @export var lowland_color := Color(0.15, 0.21, 0.09)
@@ -50,6 +52,7 @@ class_name TerrainPreset
 @export var material_contrast := 1.0
 
 @export_group("Viewport")
+@export var bake_preset := 1
 @export var viewport_quality := 0
 @export var viewport_lod_enabled := true
 @export var lod_profile := 1

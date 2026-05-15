@@ -9,6 +9,7 @@ var width := 0
 var height := 0
 var terrain_size := 64.0
 var height_scale := 5.0
+var noise_sample_scale := 1.0
 var step := 1.0
 var half_size := 32.0
 var heights := PackedFloat32Array()
@@ -19,11 +20,12 @@ func is_valid() -> bool:
 	return width > 1 and height > 1 and heights.size() == width * height
 
 
-func create_from_noise(total_resolution: int, world_size: float, vertical_scale: float, noise: FastNoiseLite) -> void:
+func create_from_noise(total_resolution: int, world_size: float, vertical_scale: float, noise: FastNoiseLite, sample_scale: float = 1.0) -> void:
 	width = total_resolution + 1
 	height = total_resolution + 1
 	terrain_size = world_size
 	height_scale = vertical_scale
+	noise_sample_scale = maxf(0.001, sample_scale)
 	step = terrain_size / float(maxi(1, total_resolution))
 	half_size = terrain_size * 0.5
 	source_description = "Noise"
@@ -33,7 +35,7 @@ func create_from_noise(total_resolution: int, world_size: float, vertical_scale:
 		var world_z := float(z) * step - half_size
 		for x in width:
 			var world_x := float(x) * step - half_size
-			heights[_index(x, z)] = noise.get_noise_2d(world_x, world_z) * height_scale if noise != null else 0.0
+			heights[_index(x, z)] = noise.get_noise_2d(world_x / noise_sample_scale, world_z / noise_sample_scale) * height_scale if noise != null else 0.0
 
 
 func create_from_image(
@@ -49,6 +51,7 @@ func create_from_image(
 	height = total_resolution + 1
 	terrain_size = world_size
 	height_scale = vertical_scale
+	noise_sample_scale = 1.0
 	step = terrain_size / float(maxi(1, total_resolution))
 	half_size = terrain_size * 0.5
 	source_description = "Heightmap"
@@ -80,6 +83,7 @@ func duplicate_heightfield() -> RefCounted:
 	copy.height = height
 	copy.terrain_size = terrain_size
 	copy.height_scale = height_scale
+	copy.noise_sample_scale = noise_sample_scale
 	copy.step = step
 	copy.half_size = half_size
 	copy.source_description = source_description
@@ -95,6 +99,7 @@ func copy_from(other: RefCounted) -> void:
 	height = other.height
 	terrain_size = other.terrain_size
 	height_scale = other.height_scale
+	noise_sample_scale = other.noise_sample_scale
 	step = other.step
 	half_size = other.half_size
 	source_description = other.source_description
