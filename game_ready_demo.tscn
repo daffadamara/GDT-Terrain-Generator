@@ -1,7 +1,40 @@
-[gd_scene load_steps=7 format=3 uid="uid://b78oajo7ncp5b"]
+[gd_scene format=3 uid="uid://b78oajo7ncp5b"]
 
-[ext_resource type="Script" uid="uid://baflqji2nt3c0" path="res://node_3d.gd" id="1_vjj5o"]
+[ext_resource type="Script" uid="uid://baflqji2nt3c0" path="res://addons/gdt_terrain/src/gdt_terrain_3d.gd" id="1_vjj5o"]
 [ext_resource type="Script" uid="uid://bmhla7bat01wb" path="res://demo_player_controller.gd" id="2_bm88o"]
+[ext_resource type="Material" uid="uid://bmg837akeax21" path="res://generated_terrain/terrain_procedural_material.res" id="2_eb4h2"]
+[ext_resource type="ArrayMesh" uid="uid://bb2lqen8w6bcv" path="res://generated_terrain/TerrainChunk_02_00_lod2_mesh.res" id="3_xcved"]
+[ext_resource type="Shape3D" uid="uid://dojaij0xq3qa" path="res://generated_terrain/TerrainChunk_02_00_collision_shape.res" id="4_k2kxt"]
+[ext_resource type="ArrayMesh" uid="uid://5kpxr070a8hy" path="res://generated_terrain/TerrainChunk_03_00_lod3_mesh.res" id="5_jnibw"]
+[ext_resource type="Shape3D" uid="uid://osvnlps3bqd8" path="res://generated_terrain/TerrainChunk_03_00_collision_shape.res" id="6_70gyd"]
+[ext_resource type="ArrayMesh" uid="uid://fhspipxsd370" path="res://generated_terrain/TerrainChunk_01_00_lod2_mesh.res" id="7_so1nq"]
+[ext_resource type="Shape3D" uid="uid://bgebp6bo15bro" path="res://generated_terrain/TerrainChunk_01_00_collision_shape.res" id="8_gicl6"]
+[ext_resource type="ArrayMesh" uid="uid://vmyuyqerskwd" path="res://generated_terrain/TerrainChunk_00_00_lod3_mesh.res" id="9_hjkoc"]
+[ext_resource type="Shape3D" uid="uid://db6qo8ycfg5up" path="res://generated_terrain/TerrainChunk_00_00_collision_shape.res" id="10_7xie7"]
+[ext_resource type="ArrayMesh" uid="uid://rv5qxwd50nm6" path="res://generated_terrain/TerrainChunk_00_01_lod2_mesh.res" id="11_m7wr8"]
+[ext_resource type="Shape3D" uid="uid://pxjc78q545ys" path="res://generated_terrain/TerrainChunk_00_01_collision_shape.res" id="12_7odr0"]
+[ext_resource type="ArrayMesh" uid="uid://sm8i73wrppcq" path="res://generated_terrain/TerrainChunk_01_01_lod1_mesh.res" id="13_feoca"]
+[ext_resource type="Shape3D" uid="uid://do7sle6nlakbu" path="res://generated_terrain/TerrainChunk_01_01_collision_shape.res" id="14_hjw85"]
+[ext_resource type="ArrayMesh" uid="uid://sa2ghgjuysjl" path="res://generated_terrain/TerrainChunk_03_01_lod2_mesh.res" id="15_68hcs"]
+[ext_resource type="Shape3D" uid="uid://cxfh32jur0s6h" path="res://generated_terrain/TerrainChunk_03_01_collision_shape.res" id="16_iv38u"]
+[ext_resource type="ArrayMesh" uid="uid://bvgkaiitsa7hr" path="res://generated_terrain/TerrainChunk_02_01_lod1_mesh.res" id="17_l7tmf"]
+[ext_resource type="Shape3D" uid="uid://hhifyvdgg6kd" path="res://generated_terrain/TerrainChunk_02_01_collision_shape.res" id="18_ida0p"]
+[ext_resource type="ArrayMesh" uid="uid://dhxqlwhymu3hw" path="res://generated_terrain/TerrainChunk_00_02_lod2_mesh.res" id="19_aaifu"]
+[ext_resource type="Shape3D" uid="uid://bgqaxjherwe6y" path="res://generated_terrain/TerrainChunk_00_02_collision_shape.res" id="20_4h33b"]
+[ext_resource type="ArrayMesh" uid="uid://cw7d3q70lvc8" path="res://generated_terrain/TerrainChunk_01_02_lod1_mesh.res" id="21_0stgb"]
+[ext_resource type="Shape3D" uid="uid://cg5w2srwbr3j6" path="res://generated_terrain/TerrainChunk_01_02_collision_shape.res" id="22_g78ew"]
+[ext_resource type="ArrayMesh" uid="uid://pr2obtbmk2jm" path="res://generated_terrain/TerrainChunk_02_02_lod1_mesh.res" id="23_db2xx"]
+[ext_resource type="Shape3D" uid="uid://coaqsgb4ftssf" path="res://generated_terrain/TerrainChunk_02_02_collision_shape.res" id="24_a25qm"]
+[ext_resource type="ArrayMesh" uid="uid://bcrbq5m0hxsyo" path="res://generated_terrain/TerrainChunk_03_02_lod2_mesh.res" id="25_5lmai"]
+[ext_resource type="Shape3D" uid="uid://cgthfeeql6pk" path="res://generated_terrain/TerrainChunk_03_02_collision_shape.res" id="26_eh20j"]
+[ext_resource type="ArrayMesh" uid="uid://c28ut657ppcmy" path="res://generated_terrain/TerrainChunk_00_03_lod3_mesh.res" id="27_kwhfr"]
+[ext_resource type="Shape3D" uid="uid://camn4mw71fh7w" path="res://generated_terrain/TerrainChunk_00_03_collision_shape.res" id="28_c8vkb"]
+[ext_resource type="ArrayMesh" uid="uid://c1em41a53465n" path="res://generated_terrain/TerrainChunk_01_03_lod2_mesh.res" id="29_mfq7f"]
+[ext_resource type="Shape3D" uid="uid://cq3ckyuh33x42" path="res://generated_terrain/TerrainChunk_01_03_collision_shape.res" id="30_km85j"]
+[ext_resource type="ArrayMesh" uid="uid://dbfwab0rhm2lq" path="res://generated_terrain/TerrainChunk_02_03_lod2_mesh.res" id="31_p52qv"]
+[ext_resource type="Shape3D" uid="uid://ba5acb37sloh0" path="res://generated_terrain/TerrainChunk_02_03_collision_shape.res" id="32_gei7y"]
+[ext_resource type="ArrayMesh" uid="uid://c627hkyg18eh2" path="res://generated_terrain/TerrainChunk_03_03_lod3_mesh.res" id="33_a5uf7"]
+[ext_resource type="Shape3D" uid="uid://wicm6744lc0s" path="res://generated_terrain/TerrainChunk_03_03_collision_shape.res" id="34_tlri0"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_0b85x"]
 radius = 0.35
@@ -19,32 +52,382 @@ ambient_light_energy = 0.55
 [node name="GameReadyDemo" type="Node3D" unique_id=1297062332]
 
 [node name="Terrain" type="Node3D" parent="." unique_id=50103755]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 12.893982, 0)
 script = ExtResource("1_vjj5o")
 terrain_size = 256.0
 chunks_per_side = 4
 height_scale = 14.8
-seed = 6584
+terrain_seed = 6584
 terrain_scale = 6.0
 lacunarity = 2.2
-water_color = Color(0.1764706, 0.46666667, 0.40392157, 1)
 snow_enabled = false
 snow_height = 11.0
 rock_slope_threshold = 0.24
-macro_variation_strength = 0.1
-detail_noise_strength = 0.2
-detail_noise_scale = 1.0
-material_brightness = 1.6
-material_contrast = 1.04
-bake_preset = 1
+lowland_layer_enabled = false
+rocky_layer_enabled = false
+texture_tile_scale = 0.3
+close_texture_tile_scale = 0.36
+medium_texture_tile_scale = 0.02
+far_texture_tile_scale = 0.01
+medium_texture_radius = 48.0
+material_brightness = 1.2
+material_contrast = 1.1
 generation_worker_count = 4
-lod_profile = 0
+final_terrain_locked = true
+high_view_lod_full_height = 97.28
+terrain_shadow_casting = 1
+visible_lod1_chunks = 4
+visible_lod2_chunks = 8
+visible_lod3_chunks = 4
+estimated_visible_triangles = 204800
 lod_target_path = NodePath("../Player")
 visible_radius = 256.0
+generated_chunks = 16
+total_chunks = 16
+visible_chunks = 16
+generation_phase = "Idle"
+bake_state = "Game Ready Bake complete: every chunk has collision."
 
 [node name="TerrainChunks" type="Node3D" parent="Terrain" unique_id=1807881365]
 
+[node name="TerrainChunk_02_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=556631467]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("3_xcved")
+metadata/terrain_chunk_center = Vector2(32, -96)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 0
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_00_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00" unique_id=1222970636]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00/CollisionBody" unique_id=1514583691]
+visible = false
+shape = ExtResource("4_k2kxt")
+
+[node name="TerrainChunk_03_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1558092711]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("5_jnibw")
+metadata/terrain_chunk_center = Vector2(96, -96)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 0
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_00_lod3_mesh.res"
+metadata/terrain_current_lod = 3
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00" unique_id=39012292]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00/CollisionBody" unique_id=436034351]
+visible = false
+shape = ExtResource("6_70gyd")
+
+[node name="TerrainChunk_01_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=982134470]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("7_so1nq")
+metadata/terrain_chunk_center = Vector2(-32, -96)
+metadata/terrain_chunk_x = 1
+metadata/terrain_chunk_z = 0
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_00_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00" unique_id=1707274748]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00/CollisionBody" unique_id=962546958]
+visible = false
+shape = ExtResource("8_gicl6")
+
+[node name="TerrainChunk_00_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1151277216]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("9_hjkoc")
+metadata/terrain_chunk_center = Vector2(-96, -96)
+metadata/terrain_chunk_x = 0
+metadata/terrain_chunk_z = 0
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_00_lod3_mesh.res"
+metadata/terrain_current_lod = 3
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00" unique_id=520110074]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00/CollisionBody" unique_id=462235658]
+visible = false
+shape = ExtResource("10_7xie7")
+
+[node name="TerrainChunk_00_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1063479562]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("11_m7wr8")
+metadata/terrain_chunk_center = Vector2(-96, -32)
+metadata/terrain_chunk_x = 0
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_01_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01" unique_id=2006779004]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01/CollisionBody" unique_id=1623748295]
+visible = false
+shape = ExtResource("12_7odr0")
+
+[node name="TerrainChunk_01_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1641348448]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("13_feoca")
+metadata/terrain_chunk_center = Vector2(-32, -32)
+metadata/terrain_chunk_x = 1
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_01_lod3_mesh.res"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01" unique_id=1052773064]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01/CollisionBody" unique_id=764494718]
+visible = false
+shape = ExtResource("14_hjw85")
+
+[node name="TerrainChunk_03_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=915638563]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("15_68hcs")
+metadata/terrain_chunk_center = Vector2(96, -32)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_01_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01" unique_id=1251855829]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01/CollisionBody" unique_id=1428200674]
+visible = false
+shape = ExtResource("16_iv38u")
+
+[node name="TerrainChunk_02_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1156804796]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("17_l7tmf")
+metadata/terrain_chunk_center = Vector2(32, -32)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_01_lod3_mesh.res"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01" unique_id=247002883]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01/CollisionBody" unique_id=1577821497]
+visible = false
+shape = ExtResource("18_ida0p")
+
+[node name="TerrainChunk_00_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1437746079]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("19_aaifu")
+metadata/terrain_chunk_center = Vector2(-96, 32)
+metadata/terrain_chunk_x = 0
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_02_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02" unique_id=1127582741]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02/CollisionBody" unique_id=637170790]
+visible = false
+shape = ExtResource("20_4h33b")
+
+[node name="TerrainChunk_01_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=718351229]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("21_0stgb")
+metadata/terrain_chunk_center = Vector2(-32, 32)
+metadata/terrain_chunk_x = 1
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_02_lod3_mesh.res"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02" unique_id=168705147]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02/CollisionBody" unique_id=1610729341]
+visible = false
+shape = ExtResource("22_g78ew")
+
+[node name="TerrainChunk_02_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1671470881]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("23_db2xx")
+metadata/terrain_chunk_center = Vector2(32, 32)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_02_lod3_mesh.res"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02" unique_id=956656810]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02/CollisionBody" unique_id=249325035]
+visible = false
+shape = ExtResource("24_a25qm")
+
+[node name="TerrainChunk_03_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=932570221]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("25_5lmai")
+metadata/terrain_chunk_center = Vector2(96, 32)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_02_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02" unique_id=2098981711]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02/CollisionBody" unique_id=79283289]
+visible = false
+shape = ExtResource("26_eh20j")
+
+[node name="TerrainChunk_00_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=929248061]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("27_kwhfr")
+metadata/terrain_chunk_center = Vector2(-96, 96)
+metadata/terrain_chunk_x = 0
+metadata/terrain_chunk_z = 3
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_03_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_03_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_03_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_03_lod3_mesh.res"
+metadata/terrain_current_lod = 3
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03" unique_id=101074688]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03/CollisionBody" unique_id=489298184]
+visible = false
+shape = ExtResource("28_c8vkb")
+
+[node name="TerrainChunk_01_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=141358454]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("29_mfq7f")
+metadata/terrain_chunk_center = Vector2(-32, 96)
+metadata/terrain_chunk_x = 1
+metadata/terrain_chunk_z = 3
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_03_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_03_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_03_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_03_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03" unique_id=1513089204]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03/CollisionBody" unique_id=847123909]
+visible = false
+shape = ExtResource("30_km85j")
+
+[node name="TerrainChunk_02_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1216610441]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("31_p52qv")
+metadata/terrain_chunk_center = Vector2(32, 96)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 3
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_03_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_03_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_03_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_03_lod3_mesh.res"
+metadata/terrain_current_lod = 2
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03" unique_id=322022681]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03/CollisionBody" unique_id=1743083772]
+visible = false
+shape = ExtResource("32_gei7y")
+
+[node name="TerrainChunk_03_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=756082953]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("33_a5uf7")
+metadata/terrain_chunk_center = Vector2(96, 96)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 3
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_03_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_03_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_03_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_03_lod3_mesh.res"
+metadata/terrain_current_lod = 3
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03" unique_id=347984269]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03/CollisionBody" unique_id=1623027262]
+visible = false
+shape = ExtResource("34_tlri0")
+
 [node name="Player" type="CharacterBody3D" parent="." unique_id=2087585995]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 18, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 18, 0)
 script = ExtResource("2_bm88o")
 move_speed = 10.0
 jump_velocity = 20.0

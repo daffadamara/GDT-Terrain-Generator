@@ -1,0 +1,27 @@
+[gd_scene format=3 uid="uid://bx0irb3lb1vuf"]
+
+[ext_resource type="Script" path="res://addons/gdt_terrain/src/gdt_terrain_3d.gd" id="1_a202f"]
+
+[node name="GdtTerrain3D" type="Node3D" unique_id=1866879641]
+script = ExtResource("1_a202f")
+terrain_size = 256.0
+chunks_per_side = 4
+height_scale = 14.8
+terrain_seed = 6584
+terrain_scale = 6.0
+lacunarity = 2.2
+snow_enabled = false
+snow_height = 11.0
+rock_slope_threshold = 0.24
+macro_variation_strength = 0.1
+detail_noise_strength = 0.2
+detail_noise_scale = 1.0
+material_brightness = 1.6
+material_contrast = 1.04
+bake_preset = 1
+generation_worker_count = 4
+terrain_performance_preset = 1
+lod_profile = 1
+visible_radius = 256.0
+
+[node name="TerrainChunks" type="Node3D" parent="." unique_id=529029911]

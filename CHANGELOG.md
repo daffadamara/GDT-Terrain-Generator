@@ -6,20 +6,27 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- `GdtTerrain3D` class name as the future public terrain node identity.
+- Packaged the terrain tool as the `GDT Terrain Generator` addon under `addons/gdt_terrain/`.
+- Added an editor plugin manifest and custom `GdtTerrain3D` node registration.
+- Added Poly Haven CC0 texture attribution for the optional example terrain material sets.
+- `GdtTerrain3D` class name as the public terrain node identity.
 - `Bake Preset` workflow choices for `Visual Only`, `Game Ready`, `High Accuracy`, and `Custom`.
 - Read-only `Bake State` summary for preview-only, visual-only, playable, and testing-collision workflows.
 - `game_ready_demo.tscn` with a simple `CharacterBody3D` proof scene for walking on baked terrain collision.
 - `Terrain Scale` noise zoom control for broader continent-scale landforms without tiny frequency values.
 - `Visible Chunks` status and `Reveal All Chunks` utility to make viewport culling obvious after a complete bake.
 - `Snow Enabled` toggle for disabling snow blending while keeping snow settings available.
-- Water motion presets: `Calm Lake`, `Coastal`, `Windy`, `Flat Visual`, and `Custom`.
-- Safer water motion controls for swell scale, crossing swell, ripple strength, ripple scale, and surface distortion.
+- `Material Mode` for switching between basic dry terrain colors and PBR texture layers.
+- Default terrain texture layers using the six `res://material/` source texture sets.
+- Per-texture-layer enable checkboxes so users can choose which terrain materials participate, with enabled texture sources collapsing into the base-to-top material stack.
+- Shader-based stochastic texture bombing controls to reduce repeated texture tiling.
+- Camera/focus-based macro texture tiling controls for close, medium, and far terrain texture density.
+- `Terrain Performance Preset` for Quality, Balanced, and Performance rendering budgets.
+- High-view visual LOD bias for camera/player views that expose most terrain chunks at once.
+- Visible LOD counters and estimated visible triangle count for profiling all-visible terrain.
+- Optional baked far-material color cache for cheaper distant texture-layer shading.
 - Shared heightfield pipeline for noise, imported heightmaps, mesh generation, collision, and export.
 - `Terrain Source` controls for replacing procedural noise with an imported PNG heightmap.
-- Standalone `ProceduralWater3D` node with animated waves, depth tint, foam, refraction controls, and water quality presets.
-- Improved water defaults with shallow/mid/deep blue depth coloring, linear-depth shoreline foam, shoreline alpha fade, larger foam tiling controls, and more visible top-down surface highlights.
-- Water now renders as a one-sided surface to prevent transparent backface tearing when waves are tall.
 - Replaced visible LOD edge curtains with surface stitching so reduced-detail chunks keep seamless full-detail borders without dark split-line artifacts.
 - Native Godot `.tres` terrain preset save/load workflow.
 - Heightmap export to grayscale PNG.
@@ -29,15 +36,22 @@ All notable changes to this project are documented here.
 - Game-ready collision intent now defaults to final-only, all chunks, half quality.
 - Final generation now clears active mesh or shader preview nodes before building final chunks.
 - Saved LOD and collision resources now reload with cache replacement so regenerated terrain scale/settings cannot reuse stale collision meshes.
-- Water shader code is no longer reassigned on every material slider update, making water controls such as alpha more responsive.
-- Water motion now separates broad directional swell from fine ripple normals and makes foam mostly shoreline/depth driven by default.
+- Terrain material generation can now sample albedo, Normal GL, roughness, and optional height maps without changing terrain mesh generation.
+- Balanced rendering now uses more aggressive distant LOD thresholds, disables terrain self-shadowing through the performance policy, and avoids expensive far normal/roughness/height/texture-bombing shader work.
+- Macro texture tiling now uses full 3D focus distance so high editor/game cameras no longer force close tiling onto terrain directly below them.
+- Texture bombing now blends randomized neighboring cells so close-range layer samples break repeated tiles more effectively.
+- Fixed texture-bombing zero-weight gaps in both Light and Quality sampling paths that could show up as black square artifacts.
+- Far-material cache usage is now restricted to genuinely distant horizontal terrain so close inspection views keep full PBR texture layers after final save.
 - Terrain mesh generation now samples from the active heightfield instead of calling noise directly.
-- Water shader, material, mesh, and resource saving now live outside the terrain material manager.
-- Terrain water controls now configure an auto-created or assigned `ProceduralWater3D` node without overwriting existing water visual tuning on scene reload.
 - Tidied the Inspector workflow by moving preset and heightmap buttons beside their paths, grouping primary terrain actions, and replacing several maintenance buttons with a single selected utility runner.
-- Split terrain mesh building into `terrain_mesh_builder.gd`.
-- Kept terrain material handling in `terrain_material_manager.gd`.
-- Kept `node_3d.gd` focused on editor workflow, generation orchestration, LOD, culling, collision, and scene ownership.
+- Split terrain mesh building into `addons/gdt_terrain/src/terrain_mesh_builder.gd`.
+- Kept terrain material handling in `addons/gdt_terrain/src/terrain_material_manager.gd`.
+- Renamed and moved the main terrain script to `addons/gdt_terrain/src/gdt_terrain_3d.gd`.
+- Moved the reusable terrain scene into the addon folder while keeping `game_ready_demo.tscn` as the root project demo.
+
+### Removed
+
+- Removed the current procedural water renderer and water-level terrain coloring so the project can return to a clean dry-terrain baseline before a replacement water system is planned.
 
 ## v5 - Procedural Visual Material Upgrade
 

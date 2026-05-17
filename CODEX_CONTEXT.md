@@ -1,10 +1,10 @@
 # Codex Project Context
 
-This project is a Godot 4.6 procedural terrain generator intended to become an open-source editor tool. The main scene is `node_3d.tscn`, driven by the `@tool` script `node_3d.gd`.
+This project is a Godot 4.6 procedural terrain generator packaged as the `GDT Terrain Generator` addon. The public terrain node is `GdtTerrain3D`, backed by `addons/gdt_terrain/src/gdt_terrain_3d.gd`.
 
 ## Current Goal
 
-Build an editor-friendly static terrain generator that can produce large terrain grids, keep the Godot editor responsive, and provide good-looking procedural terrain, water, and game-ready baked collision without imported texture assets.
+Build an editor-friendly static terrain generator that can produce large terrain grids, keep the Godot editor responsive, and provide good-looking terrain materials and game-ready baked collision.
 
 The tool currently focuses on:
 
@@ -12,20 +12,23 @@ The tool currently focuses on:
 - Preview and final generation workflows.
 - External `.res` resources for generated meshes/materials to avoid bloating text scenes.
 - Distance-based viewport LOD and culling for editor FPS.
+- Terrain performance presets, high-view visual LOD bias, and LOD/triangle counters for all-visible terrain profiling.
 - Bake presets for visual-only, game-ready, and high-accuracy final output.
 - Collision generation with coverage/quality controls, where game-ready output means all chunks receive collision.
-- Procedural terrain material masks and shader-based visual tuning.
-- Standalone animated `ProceduralWater3D` that integrates with terrain but can be used independently.
+- Procedural terrain material masks, basic color fallback shading, and PBR texture layer shading.
+- Stochastic texture bombing controls to reduce visible texture repetition on large terrain.
 - Heightmap import/export and terrain preset resources.
 
 ## Important Files
 
-- `node_3d.gd`: Main terrain generator, inspector workflow, generation orchestration, LOD/culling, collision, presets, heightmap I/O, and water integration.
-- `terrain_mesh_builder.gd`: Builds chunk meshes, LOD meshes, terrain masks, normals, collision meshes, and LOD edge stitching.
-- `terrain_material_manager.gd`: Owns terrain procedural/legacy materials and terrain shader resources.
-- `terrain_heightfield.gd`: Shared heightfield source for noise or heightmap input.
-- `terrain_preset.gd`: Native Godot `.tres` preset data resource.
-- `procedural_water_3d.gd`: Standalone animated water node with its own mesh, shader, material, noise, quality presets, and resource saving.
+- `addons/gdt_terrain/plugin.cfg`: Godot editor plugin manifest.
+- `addons/gdt_terrain/plugin.gd`: Registers `GdtTerrain3D` in Add Node.
+- `addons/gdt_terrain/src/gdt_terrain_3d.gd`: Main terrain generator, inspector workflow, generation orchestration, LOD/culling, collision, presets, and heightmap I/O.
+- `addons/gdt_terrain/src/terrain_mesh_builder.gd`: Builds chunk meshes, LOD meshes, terrain masks, normals, collision meshes, and LOD edge stitching.
+- `addons/gdt_terrain/src/terrain_material_manager.gd`: Owns terrain procedural/legacy materials and terrain shader resources.
+- `addons/gdt_terrain/src/terrain_heightfield.gd`: Shared heightfield source for noise or heightmap input.
+- `addons/gdt_terrain/src/terrain_preset.gd`: Native Godot `.tres` preset data resource.
+- `material/`: Optional Poly Haven CC0 source PBR texture sets used by the default terrain texture layers in this development project.
 - `game_ready_demo.tscn`: Playable validation scene with a terrain generator, `CharacterBody3D`, camera, and light.
 - `demo_player_controller.gd`: Minimal demo player controller.
 - `README.md`: Public-facing documentation.
@@ -35,18 +38,23 @@ The tool currently focuses on:
 
 Generated terrain data is intentionally not part of the clean source push unless explicitly requested.
 
+The current `game_ready_demo.tscn` state may intentionally include the user's saved baked demo terrain, including `TerrainChunk_*` children and references to local `generated_terrain/*.res` resources. Do not automatically restore this scene as editor serialization noise just because generated chunks are present. If preparing a distributable commit or release, make an explicit choice first:
+
+- Keep the baked playable demo and include the required `generated_terrain/` resources, likely with Git LFS if size becomes a concern.
+- Or clear the generated demo terrain and keep `game_ready_demo.tscn` as a clean generate-on-demand proof scene.
+
 Usually do not commit:
 
 - `generated_terrain/`
 - `terrain_heightmap.png`
 - screenshot files and `.import` files
-- generated/editor-heavy changes to `node_3d.tscn` that embed generated chunks
+- generated/editor-heavy changes that embed generated chunks
 
-Commit source scripts, docs, preset/resource scripts, and intentional scene setup changes only.
+Commit addon source scripts, docs, preset/resource scripts, optional credited source texture assets under `material/`, and intentional scene setup changes only.
 
 ## Current Terrain Behavior
 
-`node_3d.gd` creates a `TerrainChunks` parent and adds chunk `MeshInstance3D` children progressively. Final builds can save chunk LOD meshes as external resources. The final terrain lock prevents accidental preview regeneration after a final build.
+`GdtTerrain3D` creates a `TerrainChunks` parent and adds chunk `MeshInstance3D` children progressively. Final builds can save chunk LOD meshes as external resources. The final terrain lock prevents accidental preview regeneration after a final build.
 
 Terrain can come from:
 
@@ -59,14 +67,35 @@ Mesh generation reads from the active heightfield, so visual mesh, collision, LO
 
 `Snow Enabled` is an artist-facing material/mesh mask toggle. When disabled, new mesh color masks store no snow and the procedural terrain shader ignores both height-derived and baked snow masks. Keep `Snow Height`, `Snow Color`, and `Snow Detail Strength` available so users can re-enable snow without losing tuning.
 
+`Material Mode` selects the visual shader path:
+
+- `Basic Colors`: dry procedural color blending with generated noise variation.
+- `Texture Layers`: PBR texture blending using user-assigned texture folders. This repo includes optional Poly Haven CC0 defaults under `res://material/`.
+
+The default texture folders are `sand_03`, `forest_ground`, `aerial_grass_rock`, `rocky_terrain`, `rock_face`, and `snow`. Texture layers use diffuse/albedo, Normal GL, roughness, and optional displacement/height textures. Texture bombing is implemented in the terrain shader with stable world-space randomization; it does not change terrain geometry.
+
+Each texture source has an enabled flag. Disabled sources should be removed from the ordered material stack rather than merely hidden: the first enabled source fills the lowland/base role, the second fills the ground role, the third fills the upper role, and the mapping continues upward. If every source is disabled, ground acts as the safety fallback.
+
+Macro texture tiling is shader-side and distance-based, using a 3D `texture_focus_position` uniform supplied by `GdtTerrain3D`. The terrain node updates only that uniform while the editor/game camera moves, which avoids shader recompiles and keeps the transition responsive. Use full 3D distance for macro tiling, not only X/Z distance, so a high editor camera does not force close tiling onto the terrain directly below it. Do not use non-portable camera built-ins such as `CAMERA_POSITION_WORLD` or `INV_VIEW_MATRIX` in this shader path; they failed in this Godot 4.6 spatial shader context. Close tile scale should be higher for smaller nearby detail, while far tile scale should be lower for broad distant tiling. Do not blend the tile scale number itself; that creates radial UV stretching. Blend separately sampled close/medium/far texture results instead. Steep cliff samples intentionally keep a stable triplanar tile scale instead of inheriting the camera-distance macro scale, because camera-driven planar scale changes can smear cliff textures.
+
+Texture bombing must always use weights that sum to non-zero. Earlier randomized radial weights and a two-sample diagonal light path could leave uncovered gaps and render black squares. Light mode should use two-cell coverage along one axis with weights that sum to 1; Quality mode should use deterministic bilinear four-cell coverage.
+
+`Terrain Performance Preset` controls the practical rendering budget. Balanced is the default target: it keeps close material quality, applies more aggressive distant mesh LOD, disables terrain shadow casting through the performance policy, caps medium/far texture bombing, and can use a baked far color cache after final resource saving. The far cache is static and saved as a normal Godot resource; it is not Unreal-style virtual texturing with page tables, runtime feedback, or streaming. Runtime rendering should remain shader/GPU-driven with only the material focus uniform updated per frame.
+
+The far color cache must stay conservative. It is only for genuinely distant terrain, and should require both far macro weight and enough horizontal distance from the focus point. Do not let it replace terrain merely because a camera is vertically high above a nearby point; that makes close inspection views look like low-resolution baked color.
+
+`High View LOD Bias` is meant for the user-reported jump/fly/editor all-visible case. It adds visual LOD when the focus camera/player gets high enough to see most chunks. It must never change collision, only the displayed chunk mesh.
+
+Shader Preview remains the fast shape/material-mask preview. Use Mesh Preview or Final generation when validating actual PBR texture layers.
+
 ## Bake Workflow Notes
 
-The public terrain node identity target is `GdtTerrain3D`, currently provided by `node_3d.gd` through `class_name GdtTerrain3D`.
+The public terrain node identity is `GdtTerrain3D`, provided by the addon script and registered by the `GDT Terrain Generator` editor plugin.
 
 Final output should be explained through three states:
 
 - Preview: fast visual iteration, not playable output.
-- Visual Bake: saved visual meshes/materials/water with collision disabled.
+- Visual Bake: saved visual meshes/materials with collision disabled.
 - Game Ready Bake: saved visuals plus all-terrain collision.
 
 `Bake Preset` is the high-level workflow control. The default `Game Ready` preset sets collision to final-only, all chunks, half quality. `Near Center` and `Visible Chunks` collision coverage are testing/editor modes, not final playable terrain defaults.
@@ -80,33 +109,15 @@ Viewport LOD swaps chunk meshes by distance from the culling/LOD focus. A previo
 - Lower LOD meshes skip their coarse outer ring.
 - The outer ring is rebuilt with full-detail border samples.
 - That detailed border is stitched into the coarser interior with regular surface triangles.
-- `TERRAIN_LOD_EDGE_VERSION` in `node_3d.gd` should be incremented when changing LOD seam geometry so old `.res` LOD meshes are rebuilt automatically.
-
-## Water Notes
-
-Water is now owned by `ProceduralWater3D`, not `TerrainMaterialManager`.
-
-`node_3d.gd` auto-creates or reuses a `ProceduralWater3D` child named `WaterPlane` when `water_enabled` is true. Once the water node exists, it owns its visual tuning. The terrain generator should only sync integration values:
-
-- enabled state
-- water size
-- water level
-- generated resource directory
-
-Do not overwrite the water node's color, alpha, waves, foam, tiling, subdivision, or other visual settings during reload.
-
-Water motion is preset-first. `Coastal` is the default and should remain restrained: broad slow swell, clean low-strength ripples, low screen distortion, and mostly shoreline/depth-driven foam. `Calm Lake`, `Windy`, and `Flat Visual` are alternate motion presets. Advanced controls should favor `Swell Scale`, `Ripple Scale`, `Ripple Strength`, and `Surface Distortion`; older `Wave Scale` and `Normal Tiling` are compatibility multipliers for saved scenes.
-
-The water shader intentionally uses backface culling (`cull_back`) to avoid transparent backface tearing when animated waves are tall. Water is visual-only for now; no buoyancy, flow maps, or gameplay water physics are part of the pre-plugin milestone.
+- `TERRAIN_LOD_EDGE_VERSION` in `gdt_terrain_3d.gd` should be incremented when changing LOD seam geometry so old `.res` LOD meshes are rebuilt automatically.
 
 ## Validation Commands
 
 Use these checks after changes:
 
 ```bash
-godot --headless --path . --check-only --script res://node_3d.gd
-godot --headless --path . --check-only --script res://terrain_mesh_builder.gd
-godot --headless --path . --check-only --script res://procedural_water_3d.gd
+godot --headless --path . --check-only --script res://addons/gdt_terrain/src/gdt_terrain_3d.gd
+godot --headless --path . --check-only --script res://addons/gdt_terrain/src/terrain_mesh_builder.gd
 godot --headless --path . --quit-after 5
 git diff --check
 ```
@@ -120,6 +131,5 @@ Keep this tool editor-first and practical:
 - Prefer progressive work over freezing the editor.
 - Keep expensive features opt-in or manual.
 - Avoid committing generated terrain resources unless the user explicitly asks.
-- Preserve standalone water usability.
 - Keep inspector controls understandable and document hover descriptions for new exported properties.
-- For future major work, consider runtime streaming, foliage/rocks, biome masks, better heightmap import resources, or water presets.
+- For future major work, consider runtime streaming, foliage/rocks, biome masks, better heightmap import resources, or a replacement environment renderer.
