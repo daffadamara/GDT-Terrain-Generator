@@ -11,9 +11,13 @@ config_version=5
 [application]
 
 config/name="gdt-terrain"
-run/main_scene="res://node_3d.tscn"
+run/main_scene="res://game_ready_demo.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gdt_terrain/plugin.cfg")
 
 [physics]
 
@@ -22,3 +26,4 @@ config/icon="res://icon.svg"
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+anti_aliasing/quality/use_taa=true
