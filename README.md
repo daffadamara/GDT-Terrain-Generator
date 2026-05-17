@@ -242,43 +242,6 @@ Use `Generate Collision` after generating final terrain if you want to rebuild p
 4. Click `Generate Final`.
 5. Press Play and walk the character across chunk boundaries.
 
-## Generated Files
-
-`generated_terrain/` contains binary `.res` files for generated chunk meshes, LODs, collision shapes, procedural materials, shaders, and generated noise textures. These files can be large.
-
-`material/` contains optional Poly Haven CC0 source PBR texture sets used by the demo/default terrain material layers. These are normal project assets, not generated output.
-
-For open-source distribution:
-
-- Commit `generated_terrain/` only if you want to ship a ready-made sample terrain.
-- Use Git LFS if the generated resources become large.
-- Or clear generated terrain before committing and let users generate their own terrain locally.
-
-## Addon Publishing Checklist
-
-- Keep `addons/gdt_terrain/`, `LICENSE`, README files, demo scenes, and optional credited example textures.
-- Exclude `.godot/`, `.import/`, `generated_terrain/`, logs, temporary files, and local screenshots unless intentionally used for AssetLib marketing.
-- Confirm `GDT Terrain Generator` enables cleanly in Project Settings > Plugins.
-- Confirm `GdtTerrain3D` appears in Add Node and can generate preview/final terrain in a fresh Godot 4.6 project.
-- Include `THIRD_PARTY_NOTICES.md` when shipping the optional Poly Haven CC0 texture examples.
-
-## Project Structure
-
-| Path | Purpose |
-| --- | --- |
-| `addons/gdt_terrain/` | Installable Godot addon for `GDT Terrain Generator`. |
-| `addons/gdt_terrain/src/gdt_terrain_3d.gd` | Main editor-facing terrain generator script and Inspector workflow. |
-| `addons/gdt_terrain/scenes/gdt_terrain_3d.tscn` | Reusable terrain node scene. |
-| `game_ready_demo.tscn` | Playable proof scene for game-ready baked terrain collision. |
-| `demo_player_controller.gd` | Minimal WASD/mouse `CharacterBody3D` controller used by the demo scene. |
-| `addons/gdt_terrain/src/terrain_heightfield.gd` | Shared noise/imported height data used by meshes, collision, and export. |
-| `addons/gdt_terrain/src/terrain_mesh_builder.gd` | Chunk mesh, LOD mesh, skirt, normal, and terrain mask generation. |
-| `addons/gdt_terrain/src/terrain_material_manager.gd` | Procedural terrain shaders, materials, and generated noise resources. |
-| `addons/gdt_terrain/src/terrain_preset.gd` | Native Godot Resource used by terrain preset save/load. |
-| `material/` | Optional Poly Haven CC0 source PBR texture sets for terrain texture layers. |
-| `generated_terrain/` | Generated binary terrain mesh resources. |
-| `project.godot` | Godot project configuration. |
-
 ## License
 
 MIT. See `LICENSE`.
