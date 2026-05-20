@@ -30,6 +30,13 @@ All notable changes to this project are documented here.
 - Replaced visible LOD edge curtains with surface stitching so reduced-detail chunks keep seamless full-detail borders without dark split-line artifacts.
 - Native Godot `.tres` terrain preset save/load workflow.
 - Heightmap export to grayscale PNG.
+- V7 Terrain3D-inspired region data resources saved beside final chunk resources.
+- Public terrain query API for height, normal, slope, region lookup, and position projection.
+- Dynamic Near Focus collision coverage for lightweight moving collision around the active LOD focus.
+- EXR and R16/RAW heightmap import/export controls with explicit raw dimensions and height ranges.
+- Material mask painting-lite API for editing visual layer influence without height sculpting.
+- Static deterministic MultiMesh scatter foundation with cell-based output.
+- Terrain3D architectural reference attribution.
 
 ### Changed
 

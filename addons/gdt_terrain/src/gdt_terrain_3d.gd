@@ -6,6 +6,8 @@ const TerrainMaterialManagerScript = preload("res://addons/gdt_terrain/src/terra
 const TerrainMeshBuilderScript = preload("res://addons/gdt_terrain/src/terrain_mesh_builder.gd")
 const TerrainHeightfieldScript = preload("res://addons/gdt_terrain/src/terrain_heightfield.gd")
 const TerrainPresetScript = preload("res://addons/gdt_terrain/src/terrain_preset.gd")
+const TerrainRegionDataScript = preload("res://addons/gdt_terrain/src/terrain_region_data.gd")
+const TerrainScatterLayerScript = preload("res://addons/gdt_terrain/src/terrain_scatter_layer.gd")
 
 enum GenerationMode { PREVIEW, FINAL }
 enum SourceMode { NOISE, HEIGHTMAP }
@@ -18,11 +20,16 @@ enum ViewportQuality { FULL, HALF, QUARTER, EIGHTH }
 enum LodProfile { QUALITY, BALANCED, PERFORMANCE }
 enum TerrainPerformancePreset { QUALITY, BALANCED, PERFORMANCE }
 enum TerrainShadowCasting { ON, OFF, PERFORMANCE_PRESET }
-enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS }
-enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS }
+enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS, DYNAMIC_NEAR_FOCUS }
+enum HeightmapFormat { PNG, EXR, R16 }
+enum PaintLayer { LOWLAND, GROUND, UPPER, ROCKY, CLIFF, SNOW }
+enum PaintMode { ADD, SUBTRACT, SMOOTH }
+enum EditorBrushMode { MATERIAL_PAINT, SCATTER_ADD, SCATTER_ERASE }
+enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS, REBUILD_REGION_DATA, CLEAR_PAINTED_MASKS, GENERATE_SCATTER, CLEAR_SCATTER }
 enum GenerationPhase { IDLE, BUILDING_MESH_ARRAYS, FINALIZING_CHUNKS, SAVING_LODS, GENERATING_COLLISION, SAVING_RESOURCES }
 
 const TERRAIN_CHUNKS_NAME := "TerrainChunks"
+const TERRAIN_SCATTER_NAME := "TerrainScatter"
 const SHADER_PREVIEW_NAME := "ShaderPreviewTerrain"
 const PREVIEW_LIGHT_NAME := "TerrainPreviewLight"
 const PREVIEW_ENVIRONMENT_NAME := "TerrainPreviewEnvironment"
@@ -31,8 +38,9 @@ const LEGACY_TERRAIN_BODY_NAME := "TerrainBody"
 const DEFAULT_GENERATED_RESOURCE_DIR := "res://generated_terrain"
 const LOD_STRIDES := [1, 2, 4, 8]
 const TERRAIN_LOD_EDGE_VERSION := 3
-const TERRAIN_ENCODING_V5_MASKS := TerrainMaterialManagerScript.TERRAIN_ENCODING_V5_MASKS
-const TERRAIN_ENCODING_LEGACY_COLORS := TerrainMaterialManagerScript.TERRAIN_ENCODING_LEGACY_COLORS
+const TERRAIN_ENCODING_V5_MASKS := "v5_masks"
+const TERRAIN_ENCODING_LEGACY_COLORS := "legacy_colors"
+const TERRAIN_PAINT_ENCODING_WEIGHTS_V1 := "paint_weights_v1"
 
 const SHADER_PREVIEW_CODE := """
 shader_type spatial;
@@ -194,8 +202,8 @@ void fragment() {
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
-## 16-bit PNG heightmap used when Source Mode is Heightmap. The image is resampled to the current terrain grid.
-@export_file("*.png") var heightmap_path: String = "":
+## Heightmap used when Source Mode is Heightmap. PNG, EXR, and R16/RAW are supported.
+@export_file("*.png", "*.exr", "*.r16", "*.raw") var heightmap_path: String = "":
 	set(value):
 		heightmap_path = value
 		_mark_heightfield_dirty()
@@ -221,6 +229,52 @@ void fragment() {
 		heightmap_invert = value
 		_mark_heightfield_dirty()
 		_queue_regenerate()
+
+## Import/export format for heightmaps. EXR or R16 are recommended for clean high-precision terrain exchange.
+@export_enum("PNG", "EXR", "R16 / RAW") var heightmap_format: int = HeightmapFormat.PNG:
+	set(value):
+		heightmap_format = clampi(value, HeightmapFormat.PNG, HeightmapFormat.R16)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Width of imported R16/RAW heightmaps. Raw files do not store dimensions, so this must match the source file.
+@export_range(2, 16384, 1) var heightmap_raw_width: int = 257:
+	set(value):
+		heightmap_raw_width = maxi(2, value)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## Height of imported R16/RAW heightmaps. Raw files do not store dimensions, so this must match the source file.
+@export_range(2, 16384, 1) var heightmap_raw_height: int = 257:
+	set(value):
+		heightmap_raw_height = maxi(2, value)
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## World height represented by the darkest R16/RAW sample.
+@export_range(-4096.0, 4096.0, 0.1) var heightmap_raw_min_height: float = -5.0:
+	set(value):
+		heightmap_raw_min_height = value
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+## World height represented by the brightest R16/RAW sample.
+@export_range(-4096.0, 4096.0, 0.1) var heightmap_raw_max_height: float = 5.0:
+	set(value):
+		heightmap_raw_max_height = value
+		_mark_heightfield_dirty()
+		_queue_regenerate()
+
+@export_category("Region Data")
+
+## Saves Terrain3D-inspired per-chunk region resources so final terrain can be queried and extended after reload.
+@export var region_data_enabled: bool = true
+
+## Writes region resources during final generation when generated terrain resources are saved.
+@export var save_region_data: bool = true
+
+## Folder for saved region metadata resources.
+@export_dir var region_data_directory: String = "res://generated_terrain/regions"
 
 @export_category("Environment")
 
@@ -571,10 +625,16 @@ void fragment() {
 
 @export_category("Heightmap I/O")
 
-## Path where Export Heightmap writes the current active heightfield as a 16-bit grayscale PNG.
-@export_file("*.png") var export_heightmap_path: String = "res://terrain_heightmap.png"
+## Path where Export Heightmap writes the current active heightfield. PNG, EXR, R16, and RAW are supported.
+@export_file("*.png", "*.exr", "*.r16", "*.raw") var export_heightmap_path: String = "res://terrain_heightmap.png"
 
-## Exports the current active heightfield to Export Heightmap Path as a grayscale PNG.
+## Minimum world height encoded during EXR/R16 export. Leave Min and Max both 0 to auto-use the current terrain range.
+@export_range(-4096.0, 4096.0, 0.1) var heightmap_export_min_height: float = 0.0
+
+## Maximum world height encoded during EXR/R16 export. Leave Min and Max both 0 to auto-use the current terrain range.
+@export_range(-4096.0, 4096.0, 0.1) var heightmap_export_max_height: float = 0.0
+
+## Exports the current active heightfield to Export Heightmap Path.
 @export_tool_button("Export Heightmap") var export_heightmap_button = export_heightmap
 
 @export_category("Viewport Performance")
@@ -725,10 +785,10 @@ void fragment() {
 		else:
 			_queue_regenerate()
 
-## Which chunks should receive collision. All Chunks is for playable baked terrain; Near Center and Visible Chunks are editor/testing modes.
-@export_enum("Near Center (Testing)", "Visible Chunks (Testing)", "All Chunks") var collision_coverage: int = CollisionCoverage.ALL_CHUNKS:
+## Which chunks should receive collision. All Chunks is for playable baked terrain; Dynamic Near Focus is a lightweight moving coverage mode.
+@export_enum("Near Center (Testing)", "Visible Chunks (Testing)", "All Chunks", "Dynamic Near Focus") var collision_coverage: int = CollisionCoverage.ALL_CHUNKS:
 	set(value):
-		collision_coverage = clampi(value, CollisionCoverage.NEAR_CENTER, CollisionCoverage.ALL_CHUNKS)
+		collision_coverage = clampi(value, CollisionCoverage.NEAR_CENTER, CollisionCoverage.DYNAMIC_NEAR_FOCUS)
 		_mark_bake_preset_custom()
 		_refresh_collision_for_focus_if_needed()
 
@@ -750,8 +810,104 @@ void fragment() {
 	set(value):
 		collision_chunks_per_frame = clampi(value, 1, 16)
 
+## Enables moving near-focus collision without rebuilding terrain. Useful for editor testing and prototype gameplay.
+@export var dynamic_collision_enabled: bool = false:
+	set(value):
+		dynamic_collision_enabled = value
+		_update_processing_state()
+		if value:
+			_refresh_dynamic_collision(true)
+
+## Radius around the LOD focus that receives dynamic collision.
+@export_range(0.0, 2048.0, 0.1) var dynamic_collision_radius: float = 16.0:
+	set(value):
+		dynamic_collision_radius = maxf(0.0, value)
+		_refresh_dynamic_collision(true)
+
+## Minimum focus movement before dynamic collision coverage refreshes.
+@export_range(0.0, 256.0, 0.1) var dynamic_collision_update_distance: float = 16.0:
+	set(value):
+		dynamic_collision_update_distance = maxf(0.0, value)
+
+## Progressive dynamic collision build speed.
+@export_range(1, 16, 1) var dynamic_collision_max_chunks_per_frame: int = 1:
+	set(value):
+		dynamic_collision_max_chunks_per_frame = clampi(value, 1, 16)
+
+@export_category("Editor Brush")
+
+## Enables the 3D viewport brush when this terrain node is selected.
+@export var editor_brush_enabled: bool = false
+
+## Brush operation used by the 3D viewport tool.
+@export_enum("Material Paint", "Scatter Add", "Scatter Erase") var editor_brush_mode: int = EditorBrushMode.MATERIAL_PAINT
+
+## Minimum movement, as a fraction of brush radius, between repeated drag stamps.
+@export_range(0.01, 1.0, 0.01) var editor_brush_spacing: float = 0.16
+
+@export_category("Material Paint")
+
+## Enables callable material mask painting. V7 painting changes visual material masks only, not terrain height.
+@export var paint_enabled: bool = false
+
+## Material layer affected by Paint Material Mask calls.
+@export_enum("Lowland", "Ground", "Upper", "Rocky", "Cliff", "Snow") var paint_layer: int = PaintLayer.GROUND
+
+## Strength applied by painting calls.
+@export_range(0.0, 1.0, 0.01) var paint_strength: float = 0.5
+
+## Radius in world units used by painting calls.
+@export_range(0.01, 256.0, 0.01) var paint_radius: float = 4.0
+
+## Edge softness for material mask painting.
+@export_range(0.0, 1.0, 0.01) var paint_softness: float = 0.5
+
+## Whether painting adds, subtracts, or smooths the target material influence.
+@export_enum("Add", "Subtract", "Smooth") var paint_mode: int = PaintMode.ADD
+
+@export_category("Scatter")
+
+## Enables static deterministic MultiMesh scatter generation.
+@export var scatter_enabled: bool = false
+
+## Optional scatter layer resource. If empty, Generate Scatter creates a simple grass-card layer.
+@export var scatter_layer: Resource
+
+## Folder used for generated scatter resources.
+@export_dir var scatter_resource_directory: String = "res://generated_terrain/scatter"
+
+## Random seed for deterministic scatter placement.
+@export var scatter_seed: int = 1001
+
+## Approximate instances per world square unit.
+@export_range(0.0, 16.0, 0.01) var scatter_density: float = 0.35
+
+## Minimum terrain height allowed for scatter.
+@export_range(-4096.0, 4096.0, 0.1) var scatter_height_min: float = -64.0
+
+## Maximum terrain height allowed for scatter.
+@export_range(-4096.0, 4096.0, 0.1) var scatter_height_max: float = 64.0
+
+## Minimum terrain slope allowed for scatter, where 0 is flat and 1 is vertical.
+@export_range(0.0, 1.0, 0.01) var scatter_slope_min: float = 0.0
+
+## Maximum terrain slope allowed for scatter, where 0 is flat and 1 is vertical.
+@export_range(0.0, 1.0, 0.01) var scatter_slope_max: float = 0.55
+
+## World size of each scatter MultiMesh cell.
+@export_range(1.0, 256.0, 1.0) var scatter_cell_size: float = 32.0
+
+## Visibility range assigned to generated scatter cells.
+@export_range(0.0, 4096.0, 1.0) var scatter_visible_distance: float = 128.0
+
+## Radius used by the editor scatter brush.
+@export_range(0.01, 256.0, 0.01) var scatter_brush_radius: float = 4.0
+
+## Density multiplier used by each scatter brush stamp.
+@export_range(0.0, 1.0, 0.01) var scatter_brush_strength: float = 0.5
+
 ## Utility command used by Run Selected Utility. These are less common maintenance actions kept out of the primary workflow buttons.
-@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision", "Reveal All Chunks") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
+@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision", "Reveal All Chunks", "Rebuild Region Data", "Clear Painted Masks", "Generate Scatter", "Clear Scatter") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
 
 ## Runs the utility selected above.
 @export_tool_button("Run Selected Utility") var run_selected_utility_button = run_selected_utility
@@ -868,6 +1024,9 @@ var _is_recoloring := false
 var _pending_collision_chunks: Array[MeshInstance3D] = []
 var _collision_target_names: Dictionary = {}
 var _is_generating_collision := false
+var _region_data_by_key: Dictionary = {}
+var _last_dynamic_collision_focus := Vector2.INF
+var _scatter_root: Node3D
 var _last_automatic_lod_focus := Vector2.INF
 var _last_material_focus := Vector3.INF
 var _last_lod_focus_height := INF
@@ -943,13 +1102,16 @@ func _ready() -> void:
 	_update_visual_materials()
 	_apply_terrain_shadow_policy()
 	_update_material_focus(true)
+	_load_region_data_index()
 	if final_terrain_locked and _has_generated_chunks():
 		_configure_noise()
 		_configure_active_generation_state(GenerationMode.FINAL)
 		_ensure_active_heightfield()
+		_rebuild_missing_region_data_from_chunks(false)
 		_configure_existing_collision_shapes()
 		_update_automatic_lod_focus(true)
 		_apply_viewport_culling()
+		_refresh_dynamic_collision(true)
 		_update_processing_state()
 		return
 	_queue_regenerate(GenerationMode.PREVIEW)
@@ -971,6 +1133,7 @@ func _process(delta: float) -> void:
 	else:
 		_update_material_focus()
 		_update_automatic_lod_focus()
+		_update_dynamic_collision_focus()
 
 
 func generate_preview_now() -> void:
@@ -1006,6 +1169,8 @@ func clear_generated_terrain() -> void:
 	final_terrain_locked = false
 	_remove_legacy_v1_nodes()
 	_remove_shader_preview()
+	clear_scatter()
+	_region_data_by_key.clear()
 
 	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
 	if chunks_root == null:
@@ -1050,6 +1215,18 @@ func generate_collision_for_existing_terrain() -> void:
 	for chunk in _pending_collision_chunks:
 		_collision_target_names[chunk.name] = true
 	_clear_collision_outside_targets()
+	if collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+		var chunks_needing_collision: Array[MeshInstance3D] = []
+		for chunk in _pending_collision_chunks:
+			if not _chunk_has_current_collision(chunk):
+				chunks_needing_collision.append(chunk)
+		_pending_collision_chunks = chunks_needing_collision
+		if _pending_collision_chunks.is_empty():
+			_generated_chunks = 0
+			_total_chunks = _collision_target_names.size()
+			_is_generating_collision = false
+			_update_processing_state()
+			return
 
 	_generated_chunks = 0
 	_total_chunks = _pending_collision_chunks.size()
@@ -1070,6 +1247,14 @@ func run_selected_utility() -> void:
 			remove_generated_collision()
 		UtilityAction.REVEAL_ALL_CHUNKS:
 			reveal_all_generated_chunks()
+		UtilityAction.REBUILD_REGION_DATA:
+			rebuild_region_data()
+		UtilityAction.CLEAR_PAINTED_MASKS:
+			clear_painted_material_masks()
+		UtilityAction.GENERATE_SCATTER:
+			generate_scatter()
+		UtilityAction.CLEAR_SCATTER:
+			clear_scatter()
 
 
 func externalize_generated_resources() -> void:
@@ -1119,6 +1304,589 @@ func reveal_all_generated_chunks() -> void:
 	viewport_culling_enabled = false
 	_apply_viewport_culling()
 	_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+
+
+func has_terrain_at(world_position: Vector3) -> bool:
+	return not is_nan(get_height_at(world_position))
+
+
+func get_height_at(world_position: Vector3) -> float:
+	var local_position := to_local(world_position)
+	if _active_heightfield != null and _active_heightfield.is_valid() and _point_inside_local_terrain(local_position.x, local_position.z):
+		return _active_heightfield.sample_world(local_position.x, local_position.z) + global_position.y
+	var region := get_region_at(world_position)
+	if region != null and region.has_method("sample_height"):
+		var height := float(region.sample_height(local_position.x, local_position.z))
+		if not is_nan(height):
+			return height + global_position.y
+	return NAN
+
+
+func get_normal_at(world_position: Vector3) -> Vector3:
+	var local_position := to_local(world_position)
+	var local_normal := Vector3.UP
+	if _active_heightfield != null and _active_heightfield.is_valid() and _point_inside_local_terrain(local_position.x, local_position.z):
+		local_normal = _sample_active_heightfield_normal(local_position.x, local_position.z)
+	else:
+		var region := get_region_at(world_position)
+		if region != null and region.has_method("sample_normal"):
+			local_normal = region.sample_normal(local_position.x, local_position.z)
+	return global_transform.basis * local_normal
+
+
+func get_slope_at(world_position: Vector3) -> float:
+	if not has_terrain_at(world_position):
+		return NAN
+	return clampf(1.0 - get_normal_at(world_position).normalized().dot(Vector3.UP), 0.0, 1.0)
+
+
+func project_position_to_terrain(world_position: Vector3, y_offset: float = 0.0) -> Vector3:
+	var height := get_height_at(world_position)
+	if is_nan(height):
+		return world_position
+	return Vector3(world_position.x, height + y_offset, world_position.z)
+
+
+func get_region_at(world_position: Vector3) -> Resource:
+	if not region_data_enabled:
+		return null
+	_ensure_region_data_index()
+	var local_position := to_local(world_position)
+	var coordinates := _get_region_coordinates_for_local_position(local_position.x, local_position.z)
+	if coordinates.x < 0 or coordinates.y < 0:
+		return null
+	return _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null) as Resource
+
+
+func rebuild_region_data() -> void:
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found for region data rebuild.")
+		return
+	_configure_noise()
+	_configure_active_generation_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+	if not _ensure_active_heightfield():
+		return
+	_rebuild_missing_region_data_from_chunks(true)
+
+
+func paint_material_mask(world_position: Vector3, radius: float, layer: int, strength: float, mode: int, persist_resources: bool = true) -> void:
+	if not paint_enabled:
+		push_warning("Material painting is disabled. Enable Paint Enabled before painting masks.")
+		return
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found for material painting.")
+		return
+	var local_position := to_local(world_position)
+	var paint_radius_value := maxf(0.001, radius)
+	var paint_strength_value := clampf(strength, 0.0, 1.0)
+	_ensure_region_data_index()
+
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null or not _chunk_uses_v5_masks(chunk):
+			continue
+		if not _chunk_bounds_intersect_paint(chunk, local_position, paint_radius_value):
+			continue
+		_paint_chunk_meshes(chunk, local_position, paint_radius_value, layer, paint_strength_value, mode, persist_resources)
+		_paint_region_data_for_chunk(chunk, local_position, paint_radius_value, layer, paint_strength_value, mode, persist_resources)
+
+
+func clear_painted_material_masks() -> void:
+	_ensure_region_data_index()
+	for key in _region_data_by_key.keys():
+		var region: Resource = _region_data_by_key[key]
+		if region != null:
+			region.painted_material_masks = PackedColorArray()
+			if not str(region.resource_path).is_empty():
+				ResourceSaver.save(region, region.resource_path)
+	_reset_painted_masks_from_chunks()
+
+
+func _chunk_bounds_intersect_paint(chunk: MeshInstance3D, local_position: Vector3, radius: float) -> bool:
+	var coordinates := _get_chunk_coordinates(chunk)
+	var chunk_world_size := terrain_size / float(maxi(1, chunks_per_side))
+	var min_x := float(coordinates.x) * chunk_world_size - terrain_size * 0.5
+	var min_z := float(coordinates.y) * chunk_world_size - terrain_size * 0.5
+	var max_x := min_x + chunk_world_size
+	var max_z := min_z + chunk_world_size
+	var closest_x := clampf(local_position.x, min_x, max_x)
+	var closest_z := clampf(local_position.z, min_z, max_z)
+	return Vector2(closest_x, closest_z).distance_to(Vector2(local_position.x, local_position.z)) <= radius
+
+
+func _paint_chunk_meshes(chunk: MeshInstance3D, local_position: Vector3, radius: float, layer: int, strength: float, mode: int, persist_resources: bool) -> void:
+	var mesh_paths: Array[String] = []
+	if not persist_resources:
+		if chunk.mesh is ArrayMesh:
+			chunk.mesh = _paint_array_mesh(chunk.mesh as ArrayMesh, local_position, radius, layer, strength, mode)
+		return
+	if chunk.mesh != null and chunk.mesh.resource_path.is_empty():
+		chunk.mesh = _paint_array_mesh(chunk.mesh as ArrayMesh, local_position, radius, layer, strength, mode)
+	for lod_index in LOD_STRIDES.size():
+		var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+		if mesh_path.is_empty() or mesh_paths.has(mesh_path):
+			continue
+		mesh_paths.append(mesh_path)
+		var mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+		if mesh == null:
+			continue
+		var painted_mesh := _paint_array_mesh(mesh, local_position, radius, layer, strength, mode)
+		painted_mesh.set_meta("terrain_lod_edge_version", int(mesh.get_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)))
+		var save_error := ResourceSaver.save(painted_mesh, mesh_path)
+		if save_error != OK:
+			push_warning("Could not save painted terrain mesh %s. Error code: %d" % [mesh_path, save_error])
+	if chunk.mesh != null:
+		var current_path := chunk.mesh.resource_path
+		if not current_path.is_empty():
+			var reloaded_mesh := ResourceLoader.load(current_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+			if reloaded_mesh != null:
+				chunk.mesh = reloaded_mesh
+
+
+func _paint_array_mesh(mesh: ArrayMesh, local_position: Vector3, radius: float, layer: int, strength: float, mode: int) -> ArrayMesh:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return mesh
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var uv2s := PackedVector2Array()
+	if arrays[Mesh.ARRAY_TEX_UV2] is PackedVector2Array:
+		uv2s = arrays[Mesh.ARRAY_TEX_UV2]
+	if colors.size() != vertices.size():
+		colors.resize(vertices.size())
+	if uv2s.size() != vertices.size():
+		uv2s.resize(vertices.size())
+	if _mesh_needs_paint_weight_reset(mesh):
+		for vertex_index in vertices.size():
+			colors[vertex_index] = Color(0.0, 0.0, 0.0, 0.0)
+			uv2s[vertex_index] = Vector2.ZERO
+	var hard_radius := maxf(radius, 0.001)
+	var soft_radius := hard_radius * clampf(paint_softness, 0.0, 1.0)
+	var inner_radius := maxf(hard_radius - soft_radius, 0.0)
+	for vertex_index in vertices.size():
+		var vertex := vertices[vertex_index]
+		var distance := Vector2(vertex.x, vertex.z).distance_to(Vector2(local_position.x, local_position.z))
+		if distance > hard_radius:
+			continue
+		var falloff := 1.0
+		if distance > inner_radius:
+			falloff = 1.0 - clampf((distance - inner_radius) / maxf(hard_radius - inner_radius, 0.001), 0.0, 1.0)
+		var weights := _paint_weights_from_channels(colors[vertex_index], uv2s[vertex_index])
+		weights = _apply_paint_to_weights(weights, layer, strength * falloff, mode)
+		colors[vertex_index] = Color(weights[0], weights[1], weights[2], weights[3])
+		uv2s[vertex_index] = Vector2(weights[4], weights[5])
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
+	var painted_mesh := ArrayMesh.new()
+	painted_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	painted_mesh.set_meta("terrain_lod_edge_version", int(mesh.get_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)))
+	painted_mesh.set_meta("terrain_paint_encoding", TERRAIN_PAINT_ENCODING_WEIGHTS_V1)
+	return painted_mesh
+
+
+func _mesh_uses_paint_weights(mesh: ArrayMesh) -> bool:
+	return mesh != null and str(mesh.get_meta("terrain_paint_encoding", "")) == TERRAIN_PAINT_ENCODING_WEIGHTS_V1
+
+
+func _mesh_needs_paint_weight_reset(mesh: ArrayMesh) -> bool:
+	if not _mesh_uses_paint_weights(mesh):
+		return true
+	return _mesh_has_invalid_paint_weights(mesh)
+
+
+func _mesh_has_invalid_paint_weights(mesh: ArrayMesh) -> bool:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return false
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors := PackedColorArray()
+	var uv2s := PackedVector2Array()
+	if arrays[Mesh.ARRAY_COLOR] is PackedColorArray:
+		colors = arrays[Mesh.ARRAY_COLOR]
+	if arrays[Mesh.ARRAY_TEX_UV2] is PackedVector2Array:
+		uv2s = arrays[Mesh.ARRAY_TEX_UV2]
+	if colors.size() != vertices.size() or uv2s.size() != vertices.size():
+		return true
+	for vertex_index in vertices.size():
+		var color := colors[vertex_index]
+		var uv2 := uv2s[vertex_index]
+		var total := clampf(color.r, 0.0, 1.0) + clampf(color.g, 0.0, 1.0) + clampf(color.b, 0.0, 1.0) + clampf(color.a, 0.0, 1.0) + clampf(uv2.x, 0.0, 1.0) + clampf(uv2.y, 0.0, 1.0)
+		if total > 1.001:
+			return true
+	return false
+
+
+func _paint_weights_from_channels(color: Color, uv2: Vector2) -> PackedFloat32Array:
+	var weights := PackedFloat32Array()
+	weights.resize(6)
+	weights[PaintLayer.LOWLAND] = clampf(color.r, 0.0, 1.0)
+	weights[PaintLayer.GROUND] = clampf(color.g, 0.0, 1.0)
+	weights[PaintLayer.UPPER] = clampf(color.b, 0.0, 1.0)
+	weights[PaintLayer.ROCKY] = clampf(color.a, 0.0, 1.0)
+	weights[PaintLayer.CLIFF] = clampf(uv2.x, 0.0, 1.0)
+	weights[PaintLayer.SNOW] = clampf(uv2.y, 0.0, 1.0)
+	return weights
+
+
+func _apply_paint_to_weights(current: PackedFloat32Array, layer: int, amount: float, mode: int) -> PackedFloat32Array:
+	var selected_layer := clampi(layer, PaintLayer.LOWLAND, PaintLayer.SNOW)
+	var clamped_amount := clampf(amount, 0.0, 1.0)
+	var result := PackedFloat32Array(current)
+	match mode:
+		PaintMode.SUBTRACT:
+			for weight_index in result.size():
+				result[weight_index] = maxf(result[weight_index] - clamped_amount, 0.0)
+			return result
+		PaintMode.SMOOTH:
+			for weight_index in result.size():
+				result[weight_index] = lerpf(result[weight_index], 0.0, clamped_amount)
+			result[selected_layer] = lerpf(result[selected_layer], 1.0, clamped_amount * 0.65)
+			return result
+		_:
+			for weight_index in result.size():
+				result[weight_index] = lerpf(result[weight_index], 0.0, clamped_amount)
+			result[selected_layer] = lerpf(result[selected_layer], 1.0, clamped_amount)
+			return result
+
+
+func _reset_painted_masks_from_chunks() -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and _chunk_uses_v5_masks(chunk):
+			_reset_chunk_mesh_masks(chunk)
+
+
+func _reset_chunk_mesh_masks(chunk: MeshInstance3D) -> void:
+	var mesh_paths: Array[String] = []
+	if chunk.mesh is ArrayMesh:
+		if chunk.mesh.resource_path.is_empty():
+			chunk.mesh = _reset_array_mesh_masks(chunk.mesh as ArrayMesh)
+		else:
+			mesh_paths.append(chunk.mesh.resource_path)
+	for lod_index in LOD_STRIDES.size():
+		var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+		if not mesh_path.is_empty() and not mesh_paths.has(mesh_path):
+			mesh_paths.append(mesh_path)
+
+	for mesh_path in mesh_paths:
+		var mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+		if mesh == null:
+			continue
+		var reset_mesh := _reset_array_mesh_masks(mesh)
+		var save_error := ResourceSaver.save(reset_mesh, mesh_path)
+		if save_error != OK:
+			push_warning("Could not reset painted terrain mesh %s. Error code: %d" % [mesh_path, save_error])
+
+	if chunk.mesh != null and not chunk.mesh.resource_path.is_empty():
+		var reloaded_mesh := ResourceLoader.load(chunk.mesh.resource_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+		if reloaded_mesh != null:
+			chunk.mesh = reloaded_mesh
+
+
+func _reset_array_mesh_masks(mesh: ArrayMesh) -> ArrayMesh:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return mesh
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors := PackedColorArray()
+	var uv2s := PackedVector2Array()
+	colors.resize(vertices.size())
+	uv2s.resize(vertices.size())
+	for vertex_index in vertices.size():
+		colors[vertex_index] = Color(0.0, 0.0, 0.0, 0.0)
+		uv2s[vertex_index] = Vector2.ZERO
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
+	var reset_mesh := ArrayMesh.new()
+	reset_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	reset_mesh.set_meta("terrain_lod_edge_version", int(mesh.get_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)))
+	reset_mesh.set_meta("terrain_paint_encoding", TERRAIN_PAINT_ENCODING_WEIGHTS_V1)
+	return reset_mesh
+
+
+func _paint_region_data_for_chunk(chunk: MeshInstance3D, local_position: Vector3, radius: float, layer: int, strength: float, mode: int, persist_resources: bool) -> void:
+	var coordinates := _get_chunk_coordinates(chunk)
+	var region: Resource = _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null)
+	if region == null:
+		return
+	var grid_center: Vector2 = region.world_to_grid(local_position.x, local_position.z)
+	var grid_radius := radius / maxf((region.world_max.x - region.world_min.x) / float(maxi(1, region.resolution)), 0.001)
+	for z in range(maxi(0, floori(grid_center.y - grid_radius)), mini(region.resolution, ceili(grid_center.y + grid_radius)) + 1):
+		for x in range(maxi(0, floori(grid_center.x - grid_radius)), mini(region.resolution, ceili(grid_center.x + grid_radius)) + 1):
+			var distance := Vector2(float(x), float(z)).distance_to(grid_center)
+			if distance > grid_radius:
+				continue
+			var amount := strength * (1.0 - clampf(distance / maxf(grid_radius, 0.001), 0.0, 1.0))
+			var current: Color = region.get_painted_mask_grid(x, z)
+			var weights := _paint_weights_from_channels(current, Vector2.ZERO)
+			weights = _apply_paint_to_weights(weights, layer, amount, mode)
+			region.set_painted_mask_grid(x, z, Color(weights[0], weights[1], weights[2], weights[3]))
+	if persist_resources and not str(region.resource_path).is_empty():
+		ResourceSaver.save(region, region.resource_path)
+
+
+func generate_scatter() -> void:
+	if not scatter_enabled:
+		push_warning("Scatter is disabled. Enable Scatter Enabled before generating scatter.")
+		return
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found for scatter generation.")
+		return
+	var layer := _get_active_scatter_layer()
+	var source_mesh: Mesh = layer.get_mesh() if layer != null and layer.has_method("get_mesh") else null
+	if source_mesh == null:
+		source_mesh = _create_default_scatter_mesh()
+	clear_scatter()
+	var scatter_root := _get_or_create_scatter_root()
+	var cell_size := maxf(scatter_cell_size, 1.0)
+	var half_size := terrain_size * 0.5
+	var cells_per_side := ceili(terrain_size / cell_size)
+	var rng := RandomNumberGenerator.new()
+
+	for cell_z in cells_per_side:
+		for cell_x in cells_per_side:
+			var cell_min_x := -half_size + float(cell_x) * cell_size
+			var cell_min_z := -half_size + float(cell_z) * cell_size
+			var cell_max_x := minf(cell_min_x + cell_size, half_size)
+			var cell_max_z := minf(cell_min_z + cell_size, half_size)
+			var cell_area := maxf(cell_max_x - cell_min_x, 0.0) * maxf(cell_max_z - cell_min_z, 0.0)
+			var instance_target := clampi(roundi(cell_area * scatter_density), 0, 5000)
+			if instance_target <= 0:
+				continue
+			rng.seed = hash("%d:%d:%d" % [scatter_seed, cell_x, cell_z])
+			var transforms := _build_scatter_cell_transforms(rng, cell_min_x, cell_min_z, cell_max_x, cell_max_z, instance_target, layer)
+			if transforms.is_empty():
+				continue
+			var multimesh := MultiMesh.new()
+			multimesh.transform_format = MultiMesh.TRANSFORM_3D
+			multimesh.instance_count = transforms.size()
+			multimesh.mesh = source_mesh
+			for index in transforms.size():
+				multimesh.set_instance_transform(index, transforms[index])
+			var instance := MultiMeshInstance3D.new()
+			instance.name = "ScatterCell_%02d_%02d" % [cell_x, cell_z]
+			instance.multimesh = multimesh
+			if layer != null and layer.material_override != null:
+				instance.material_override = layer.material_override
+			instance.visibility_range_end = scatter_visible_distance
+			scatter_root.add_child(instance)
+			_set_scene_owner(instance)
+
+	if save_final_meshes_as_resources:
+		DirAccess.make_dir_recursive_absolute(scatter_resource_directory)
+
+
+func scatter_brush_stamp(world_position: Vector3, radius: float, strength: float) -> void:
+	if not scatter_enabled:
+		push_warning("Scatter is disabled. Enable Scatter Enabled before using the scatter brush.")
+		return
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found for scatter painting.")
+		return
+	var brush_radius := maxf(radius, 0.01)
+	var brush_strength := clampf(strength, 0.0, 1.0)
+	if brush_strength <= 0.0:
+		return
+	var layer := _get_active_scatter_layer()
+	var source_mesh: Mesh = layer.get_mesh() if layer != null and layer.has_method("get_mesh") else null
+	if source_mesh == null:
+		source_mesh = _create_default_scatter_mesh()
+	var local_center := to_local(world_position)
+	var instance_target := clampi(roundi(PI * brush_radius * brush_radius * scatter_density * brush_strength), 1, 2000)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%d:%d:%d:%d" % [scatter_seed, roundi(local_center.x * 100.0), roundi(local_center.z * 100.0), _get_or_create_scatter_root().get_child_count()])
+	var transforms := _build_scatter_brush_transforms(rng, local_center, brush_radius, instance_target, layer)
+	if transforms.is_empty():
+		return
+
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.instance_count = transforms.size()
+	multimesh.mesh = source_mesh
+	for index in transforms.size():
+		multimesh.set_instance_transform(index, transforms[index])
+
+	var instance := MultiMeshInstance3D.new()
+	instance.name = "ScatterBrush_%04d" % _get_or_create_scatter_root().get_child_count()
+	instance.multimesh = multimesh
+	instance.set_meta("terrain_scatter_brush_radius", brush_radius)
+	if layer != null and layer.material_override != null:
+		instance.material_override = layer.material_override
+	instance.visibility_range_end = scatter_visible_distance
+	var scatter_root := _get_or_create_scatter_root()
+	scatter_root.add_child(instance)
+	_set_scene_owner(instance)
+
+
+func erase_scatter_brush(world_position: Vector3, radius: float) -> void:
+	var scatter_root := get_node_or_null(TERRAIN_SCATTER_NAME)
+	if scatter_root == null:
+		return
+	var local_center := to_local(world_position)
+	var center_2d := Vector2(local_center.x, local_center.z)
+	var erase_radius := maxf(radius, 0.01)
+	for child in scatter_root.get_children():
+		var instance := child as MultiMeshInstance3D
+		if instance == null or instance.multimesh == null:
+			continue
+		var kept_transforms: Array[Transform3D] = []
+		for index in instance.multimesh.instance_count:
+			var transform := instance.multimesh.get_instance_transform(index)
+			if Vector2(transform.origin.x, transform.origin.z).distance_to(center_2d) > erase_radius:
+				kept_transforms.append(transform)
+		if kept_transforms.is_empty():
+			scatter_root.remove_child(instance)
+			instance.queue_free()
+		elif kept_transforms.size() != instance.multimesh.instance_count:
+			_replace_multimesh_transforms(instance, kept_transforms)
+
+
+func clear_scatter() -> void:
+	var scatter_root := get_node_or_null(TERRAIN_SCATTER_NAME)
+	if scatter_root == null:
+		return
+	for child in scatter_root.get_children():
+		scatter_root.remove_child(child)
+		child.queue_free()
+
+
+func _get_active_scatter_layer() -> Resource:
+	if scatter_layer != null and scatter_layer.get_script() == TerrainScatterLayerScript:
+		var typed_layer := scatter_layer
+		typed_layer.density = scatter_density
+		typed_layer.height_min = scatter_height_min
+		typed_layer.height_max = scatter_height_max
+		typed_layer.slope_min = scatter_slope_min
+		typed_layer.slope_max = scatter_slope_max
+		return typed_layer
+	var layer: Resource = TerrainScatterLayerScript.new()
+	layer.density = scatter_density
+	layer.height_min = scatter_height_min
+	layer.height_max = scatter_height_max
+	layer.slope_min = scatter_slope_min
+	layer.slope_max = scatter_slope_max
+	return layer
+
+
+func _build_scatter_cell_transforms(
+	rng: RandomNumberGenerator,
+	cell_min_x: float,
+	cell_min_z: float,
+	cell_max_x: float,
+	cell_max_z: float,
+	instance_target: int,
+	layer: Resource
+) -> Array[Transform3D]:
+	var transforms: Array[Transform3D] = []
+	var attempts := instance_target * 4
+	var min_scale := float(layer.min_scale) if layer != null else 0.8
+	var max_scale := float(layer.max_scale) if layer != null else 1.25
+	var align_to_normal := bool(layer.align_to_normal) if layer != null else true
+	var y_offset := float(layer.y_offset) if layer != null else 0.0
+	while transforms.size() < instance_target and attempts > 0:
+		attempts -= 1
+		var local_x := rng.randf_range(cell_min_x, cell_max_x)
+		var local_z := rng.randf_range(cell_min_z, cell_max_z)
+		var world_query := to_global(Vector3(local_x, 0.0, local_z))
+		var height := get_height_at(world_query)
+		if is_nan(height) or height < scatter_height_min or height > scatter_height_max:
+			continue
+		var normal := get_normal_at(world_query).normalized()
+		var slope := clampf(1.0 - normal.dot(Vector3.UP), 0.0, 1.0)
+		if slope < scatter_slope_min or slope > scatter_slope_max:
+			continue
+		var scale := rng.randf_range(min_scale, max_scale)
+		var yaw := rng.randf_range(-PI, PI)
+		var local_normal := (global_transform.basis.inverse() * normal).normalized()
+		var basis := _scatter_basis_from_normal(local_normal if align_to_normal else Vector3.UP, yaw)
+		basis = basis.scaled(Vector3.ONE * scale)
+		var local_ground := to_local(Vector3(world_query.x, height + y_offset, world_query.z))
+		transforms.append(Transform3D(basis, local_ground))
+	return transforms
+
+
+func _build_scatter_brush_transforms(
+	rng: RandomNumberGenerator,
+	local_center: Vector3,
+	radius: float,
+	instance_target: int,
+	layer: Resource
+) -> Array[Transform3D]:
+	var transforms: Array[Transform3D] = []
+	var attempts := instance_target * 4
+	var min_scale := float(layer.min_scale) if layer != null else 0.8
+	var max_scale := float(layer.max_scale) if layer != null else 1.25
+	var align_to_normal := bool(layer.align_to_normal) if layer != null else true
+	var y_offset := float(layer.y_offset) if layer != null else 0.0
+	while transforms.size() < instance_target and attempts > 0:
+		attempts -= 1
+		var angle := rng.randf_range(-PI, PI)
+		var distance := sqrt(rng.randf()) * radius
+		var local_x := local_center.x + cos(angle) * distance
+		var local_z := local_center.z + sin(angle) * distance
+		var world_query := to_global(Vector3(local_x, 0.0, local_z))
+		var height := get_height_at(world_query)
+		if is_nan(height) or height < scatter_height_min or height > scatter_height_max:
+			continue
+		var normal := get_normal_at(world_query).normalized()
+		var slope := clampf(1.0 - normal.dot(Vector3.UP), 0.0, 1.0)
+		if slope < scatter_slope_min or slope > scatter_slope_max:
+			continue
+		var scale := rng.randf_range(min_scale, max_scale)
+		var yaw := rng.randf_range(-PI, PI)
+		var local_normal := (global_transform.basis.inverse() * normal).normalized()
+		var basis := _scatter_basis_from_normal(local_normal if align_to_normal else Vector3.UP, yaw)
+		basis = basis.scaled(Vector3.ONE * scale)
+		var local_ground := to_local(Vector3(world_query.x, height + y_offset, world_query.z))
+		transforms.append(Transform3D(basis, local_ground))
+	return transforms
+
+
+func _replace_multimesh_transforms(instance: MultiMeshInstance3D, transforms: Array[Transform3D]) -> void:
+	var old_multimesh := instance.multimesh
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.instance_count = transforms.size()
+	multimesh.mesh = old_multimesh.mesh
+	for index in transforms.size():
+		multimesh.set_instance_transform(index, transforms[index])
+	instance.multimesh = multimesh
+
+
+func _scatter_basis_from_normal(normal: Vector3, yaw: float) -> Basis:
+	var up := normal.normalized()
+	var forward := Vector3.FORWARD.rotated(Vector3.UP, yaw)
+	var right := forward.cross(up)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	else:
+		right = right.normalized()
+	forward = up.cross(right).normalized()
+	return Basis(right, up, forward)
+
+
+func _create_default_scatter_mesh() -> Mesh:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.18, 0.75, 0.18)
+	return mesh
+
+
+func _get_or_create_scatter_root() -> Node3D:
+	var root := get_node_or_null(TERRAIN_SCATTER_NAME) as Node3D
+	if root == null:
+		root = Node3D.new()
+		root.name = TERRAIN_SCATTER_NAME
+		add_child(root)
+		_set_scene_owner(root)
+	_scatter_root = root
+	return root
 
 
 func _apply_bake_preset() -> void:
@@ -1237,7 +2005,7 @@ func load_preset() -> void:
 
 
 func export_heightmap() -> void:
-	var normalized_path := _normalize_resource_path(export_heightmap_path, "terrain_heightmap.png")
+	var normalized_path := _normalize_resource_path(export_heightmap_path, _get_default_heightmap_export_file_name())
 	_configure_noise()
 	_configure_active_generation_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
 	if not _ensure_active_heightfield():
@@ -1250,9 +2018,17 @@ func export_heightmap() -> void:
 	if directory_error != OK:
 		push_warning("Could not create heightmap export directory. Error code: %d" % directory_error)
 		return
-	var save_error := _active_heightfield.export_png(normalized_path)
+
+	var export_min := _active_heightfield.get_min_height()
+	var export_max := _active_heightfield.get_max_height()
+	if not (is_zero_approx(heightmap_export_min_height) and is_zero_approx(heightmap_export_max_height)):
+		export_min = heightmap_export_min_height
+		export_max = heightmap_export_max_height
+	var save_error := _export_active_heightfield(normalized_path, export_min, export_max)
 	if save_error != OK:
 		push_warning("Could not export heightmap. Error code: %d" % save_error)
+		return
+	print("Exported heightmap %s (%dx%d), min %.3f, max %.3f." % [normalized_path, _active_heightfield.width, _active_heightfield.height, export_min, export_max])
 
 
 func _queue_regenerate(requested_mode: int = -1, manual: bool = false) -> void:
@@ -1606,6 +2382,20 @@ func _ensure_active_heightfield() -> bool:
 func _build_source_heightfield(total_resolution: int) -> bool:
 	total_resolution = maxi(1, total_resolution)
 	if source_mode == SourceMode.HEIGHTMAP:
+		if heightmap_format == HeightmapFormat.R16:
+			var raw_bytes := _load_heightmap_r16_bytes()
+			if raw_bytes.is_empty():
+				_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise, terrain_scale)
+				push_warning("R16 heightmap could not be loaded. Falling back to procedural noise.")
+				return true
+			var expected_bytes := heightmap_raw_width * heightmap_raw_height * 2
+			if raw_bytes.size() != expected_bytes:
+				push_warning("R16 heightmap byte size is %d, expected %d from %dx%d dimensions." % [raw_bytes.size(), expected_bytes, heightmap_raw_width, heightmap_raw_height])
+			if heightmap_raw_width != total_resolution + 1 or heightmap_raw_height != total_resolution + 1:
+				push_warning("R16 heightmap dimensions %dx%d are being resampled to %dx%d." % [heightmap_raw_width, heightmap_raw_height, total_resolution + 1, total_resolution + 1])
+			_source_heightfield.create_from_r16(total_resolution, terrain_size, height_scale, raw_bytes, heightmap_raw_width, heightmap_raw_height, heightmap_raw_min_height, heightmap_raw_max_height, heightmap_flip_x, heightmap_flip_z, heightmap_invert)
+			return true
+
 		var image := _load_heightmap_image()
 		if image == null:
 			_source_heightfield.create_from_noise(total_resolution, terrain_size, height_scale, _noise, terrain_scale)
@@ -1613,6 +2403,8 @@ func _build_source_heightfield(total_resolution: int) -> bool:
 			return true
 		if image.get_width() != total_resolution + 1 or image.get_height() != total_resolution + 1:
 			push_warning("Heightmap dimensions %dx%d are being resampled to %dx%d." % [image.get_width(), image.get_height(), total_resolution + 1, total_resolution + 1])
+		if heightmap_format == HeightmapFormat.PNG and image.get_format() not in [Image.FORMAT_RH, Image.FORMAT_RF, Image.FORMAT_RGBH, Image.FORMAT_RGBAH, Image.FORMAT_RGBF, Image.FORMAT_RGBAF]:
+			push_warning("PNG heightmap appears to be 8-bit after import. EXR or R16 is recommended to avoid terracing.")
 		_source_heightfield.create_from_image(total_resolution, terrain_size, height_scale, image, heightmap_flip_x, heightmap_flip_z, heightmap_invert)
 		return true
 
@@ -1628,6 +2420,37 @@ func _load_heightmap_image() -> Image:
 	if image == null or image.is_empty():
 		return null
 	return image
+
+
+func _load_heightmap_r16_bytes() -> PackedByteArray:
+	var normalized_path := heightmap_path.strip_edges()
+	if normalized_path.is_empty():
+		return PackedByteArray()
+	var file := FileAccess.open(normalized_path, FileAccess.READ)
+	if file == null:
+		return PackedByteArray()
+	var bytes := file.get_buffer(file.get_length())
+	file.close()
+	return bytes
+
+
+func _get_default_heightmap_export_file_name() -> String:
+	match heightmap_format:
+		HeightmapFormat.EXR:
+			return "terrain_heightmap.exr"
+		HeightmapFormat.R16:
+			return "terrain_heightmap.r16"
+		_:
+			return "terrain_heightmap.png"
+
+
+func _export_active_heightfield(path: String, export_min: float, export_max: float) -> int:
+	var extension := path.get_extension().to_lower()
+	if heightmap_format == HeightmapFormat.EXR or extension == "exr":
+		return _active_heightfield.export_exr(path, export_min, export_max)
+	if heightmap_format == HeightmapFormat.R16 or extension == "r16" or extension == "raw":
+		return _active_heightfield.export_r16(path, export_min, export_max)
+	return _active_heightfield.export_png(path)
 
 
 func _new_meshes_use_v5_masks() -> bool:
@@ -1739,7 +2562,7 @@ func _cancel_recolor() -> void:
 
 
 func _update_processing_state() -> void:
-	set_process(_is_generating or _is_recoloring or _is_generating_collision or _shader_preview_regenerate_pending or _should_process_automatic_lod_focus() or _should_process_material_focus())
+	set_process(_is_generating or _is_recoloring or _is_generating_collision or _shader_preview_regenerate_pending or _should_process_automatic_lod_focus() or _should_process_material_focus() or _should_process_dynamic_collision())
 
 
 func _get_chunk_resolution_for_mode(mode: int) -> int:
@@ -1917,6 +2740,9 @@ func _save_generated_resources(save_lods: bool = true) -> int:
 				_configure_terrain_collision_shape(saved_shape)
 				collision_shape.shape = saved_shape
 
+	if region_data_enabled and save_region_data:
+		_rebuild_missing_region_data_from_chunks(true)
+
 	_apply_collision_visual_visibility()
 	return OK
 
@@ -2024,6 +2850,16 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.heightmap_flip_x = heightmap_flip_x
 	preset.heightmap_flip_z = heightmap_flip_z
 	preset.heightmap_invert = heightmap_invert
+	preset.heightmap_format = heightmap_format
+	preset.heightmap_raw_width = heightmap_raw_width
+	preset.heightmap_raw_height = heightmap_raw_height
+	preset.heightmap_raw_min_height = heightmap_raw_min_height
+	preset.heightmap_raw_max_height = heightmap_raw_max_height
+	preset.heightmap_export_min_height = heightmap_export_min_height
+	preset.heightmap_export_max_height = heightmap_export_max_height
+	preset.region_data_enabled = region_data_enabled
+	preset.save_region_data = save_region_data
+	preset.region_data_directory = region_data_directory
 	preset.terrain_seed = terrain_seed
 	preset.noise_frequency = noise_frequency
 	preset.terrain_scale = terrain_scale
@@ -2095,6 +2931,31 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.collision_quality = collision_quality
 	preset.collision_radius = collision_radius
 	preset.collision_chunks_per_frame = collision_chunks_per_frame
+	preset.dynamic_collision_enabled = dynamic_collision_enabled
+	preset.dynamic_collision_radius = dynamic_collision_radius
+	preset.dynamic_collision_update_distance = dynamic_collision_update_distance
+	preset.dynamic_collision_max_chunks_per_frame = dynamic_collision_max_chunks_per_frame
+	preset.editor_brush_enabled = editor_brush_enabled
+	preset.editor_brush_mode = editor_brush_mode
+	preset.editor_brush_spacing = editor_brush_spacing
+	preset.paint_enabled = paint_enabled
+	preset.paint_layer = paint_layer
+	preset.paint_strength = paint_strength
+	preset.paint_radius = paint_radius
+	preset.paint_softness = paint_softness
+	preset.paint_mode = paint_mode
+	preset.scatter_enabled = scatter_enabled
+	preset.scatter_resource_directory = scatter_resource_directory
+	preset.scatter_seed = scatter_seed
+	preset.scatter_density = scatter_density
+	preset.scatter_height_min = scatter_height_min
+	preset.scatter_height_max = scatter_height_max
+	preset.scatter_slope_min = scatter_slope_min
+	preset.scatter_slope_max = scatter_slope_max
+	preset.scatter_cell_size = scatter_cell_size
+	preset.scatter_visible_distance = scatter_visible_distance
+	preset.scatter_brush_radius = scatter_brush_radius
+	preset.scatter_brush_strength = scatter_brush_strength
 
 
 func _apply_full_preset_settings(preset: Resource) -> void:
@@ -2107,6 +2968,36 @@ func _apply_full_preset_settings(preset: Resource) -> void:
 	heightmap_flip_x = preset.heightmap_flip_x
 	heightmap_flip_z = preset.heightmap_flip_z
 	heightmap_invert = preset.heightmap_invert
+	var loaded_heightmap_format = preset.get("heightmap_format")
+	if loaded_heightmap_format != null:
+		heightmap_format = int(loaded_heightmap_format)
+	var loaded_heightmap_raw_width = preset.get("heightmap_raw_width")
+	if loaded_heightmap_raw_width != null:
+		heightmap_raw_width = int(loaded_heightmap_raw_width)
+	var loaded_heightmap_raw_height = preset.get("heightmap_raw_height")
+	if loaded_heightmap_raw_height != null:
+		heightmap_raw_height = int(loaded_heightmap_raw_height)
+	var loaded_heightmap_raw_min_height = preset.get("heightmap_raw_min_height")
+	if loaded_heightmap_raw_min_height != null:
+		heightmap_raw_min_height = float(loaded_heightmap_raw_min_height)
+	var loaded_heightmap_raw_max_height = preset.get("heightmap_raw_max_height")
+	if loaded_heightmap_raw_max_height != null:
+		heightmap_raw_max_height = float(loaded_heightmap_raw_max_height)
+	var loaded_heightmap_export_min_height = preset.get("heightmap_export_min_height")
+	if loaded_heightmap_export_min_height != null:
+		heightmap_export_min_height = float(loaded_heightmap_export_min_height)
+	var loaded_heightmap_export_max_height = preset.get("heightmap_export_max_height")
+	if loaded_heightmap_export_max_height != null:
+		heightmap_export_max_height = float(loaded_heightmap_export_max_height)
+	var loaded_region_data_enabled = preset.get("region_data_enabled")
+	if loaded_region_data_enabled != null:
+		region_data_enabled = bool(loaded_region_data_enabled)
+	var loaded_save_region_data = preset.get("save_region_data")
+	if loaded_save_region_data != null:
+		save_region_data = bool(loaded_save_region_data)
+	var loaded_region_data_directory = preset.get("region_data_directory")
+	if loaded_region_data_directory != null:
+		region_data_directory = str(loaded_region_data_directory)
 	var loaded_terrain_seed = preset.get("terrain_seed")
 	if loaded_terrain_seed != null:
 		terrain_seed = int(loaded_terrain_seed)
@@ -2136,6 +3027,81 @@ func _apply_full_preset_settings(preset: Resource) -> void:
 	collision_quality = preset.collision_quality
 	collision_radius = preset.collision_radius
 	collision_chunks_per_frame = preset.collision_chunks_per_frame
+	var loaded_dynamic_collision_enabled = preset.get("dynamic_collision_enabled")
+	if loaded_dynamic_collision_enabled != null:
+		dynamic_collision_enabled = bool(loaded_dynamic_collision_enabled)
+	var loaded_dynamic_collision_radius = preset.get("dynamic_collision_radius")
+	if loaded_dynamic_collision_radius != null:
+		dynamic_collision_radius = float(loaded_dynamic_collision_radius)
+	var loaded_dynamic_collision_update_distance = preset.get("dynamic_collision_update_distance")
+	if loaded_dynamic_collision_update_distance != null:
+		dynamic_collision_update_distance = float(loaded_dynamic_collision_update_distance)
+	var loaded_dynamic_collision_max_chunks_per_frame = preset.get("dynamic_collision_max_chunks_per_frame")
+	if loaded_dynamic_collision_max_chunks_per_frame != null:
+		dynamic_collision_max_chunks_per_frame = int(loaded_dynamic_collision_max_chunks_per_frame)
+	var loaded_editor_brush_enabled = preset.get("editor_brush_enabled")
+	if loaded_editor_brush_enabled != null:
+		editor_brush_enabled = bool(loaded_editor_brush_enabled)
+	var loaded_editor_brush_mode = preset.get("editor_brush_mode")
+	if loaded_editor_brush_mode != null:
+		editor_brush_mode = int(loaded_editor_brush_mode)
+	var loaded_editor_brush_spacing = preset.get("editor_brush_spacing")
+	if loaded_editor_brush_spacing != null:
+		editor_brush_spacing = float(loaded_editor_brush_spacing)
+	var loaded_paint_enabled = preset.get("paint_enabled")
+	if loaded_paint_enabled != null:
+		paint_enabled = bool(loaded_paint_enabled)
+	var loaded_paint_layer = preset.get("paint_layer")
+	if loaded_paint_layer != null:
+		paint_layer = int(loaded_paint_layer)
+	var loaded_paint_strength = preset.get("paint_strength")
+	if loaded_paint_strength != null:
+		paint_strength = float(loaded_paint_strength)
+	var loaded_paint_radius = preset.get("paint_radius")
+	if loaded_paint_radius != null:
+		paint_radius = float(loaded_paint_radius)
+	var loaded_paint_softness = preset.get("paint_softness")
+	if loaded_paint_softness != null:
+		paint_softness = float(loaded_paint_softness)
+	var loaded_paint_mode = preset.get("paint_mode")
+	if loaded_paint_mode != null:
+		paint_mode = int(loaded_paint_mode)
+	var loaded_scatter_enabled = preset.get("scatter_enabled")
+	if loaded_scatter_enabled != null:
+		scatter_enabled = bool(loaded_scatter_enabled)
+	var loaded_scatter_resource_directory = preset.get("scatter_resource_directory")
+	if loaded_scatter_resource_directory != null:
+		scatter_resource_directory = str(loaded_scatter_resource_directory)
+	var loaded_scatter_seed = preset.get("scatter_seed")
+	if loaded_scatter_seed != null:
+		scatter_seed = int(loaded_scatter_seed)
+	var loaded_scatter_density = preset.get("scatter_density")
+	if loaded_scatter_density != null:
+		scatter_density = float(loaded_scatter_density)
+	var loaded_scatter_height_min = preset.get("scatter_height_min")
+	if loaded_scatter_height_min != null:
+		scatter_height_min = float(loaded_scatter_height_min)
+	var loaded_scatter_height_max = preset.get("scatter_height_max")
+	if loaded_scatter_height_max != null:
+		scatter_height_max = float(loaded_scatter_height_max)
+	var loaded_scatter_slope_min = preset.get("scatter_slope_min")
+	if loaded_scatter_slope_min != null:
+		scatter_slope_min = float(loaded_scatter_slope_min)
+	var loaded_scatter_slope_max = preset.get("scatter_slope_max")
+	if loaded_scatter_slope_max != null:
+		scatter_slope_max = float(loaded_scatter_slope_max)
+	var loaded_scatter_cell_size = preset.get("scatter_cell_size")
+	if loaded_scatter_cell_size != null:
+		scatter_cell_size = float(loaded_scatter_cell_size)
+	var loaded_scatter_visible_distance = preset.get("scatter_visible_distance")
+	if loaded_scatter_visible_distance != null:
+		scatter_visible_distance = float(loaded_scatter_visible_distance)
+	var loaded_scatter_brush_radius = preset.get("scatter_brush_radius")
+	if loaded_scatter_brush_radius != null:
+		scatter_brush_radius = float(loaded_scatter_brush_radius)
+	var loaded_scatter_brush_strength = preset.get("scatter_brush_strength")
+	if loaded_scatter_brush_strength != null:
+		scatter_brush_strength = float(loaded_scatter_brush_strength)
 
 
 func _apply_visual_preset_settings(preset: Resource) -> void:
@@ -2303,6 +3269,136 @@ func _get_chunk_coordinates(chunk: MeshInstance3D) -> Vector2i:
 	var chunk_x := clampi(floori((chunk_center.x + _active_half_size) / chunk_world_size), 0, chunks_per_side - 1)
 	var chunk_z := clampi(floori((chunk_center.y + _active_half_size) / chunk_world_size), 0, chunks_per_side - 1)
 	return Vector2i(chunk_x, chunk_z)
+
+
+func _point_inside_local_terrain(local_x: float, local_z: float) -> bool:
+	var half_size := terrain_size * 0.5
+	return local_x >= -half_size and local_x <= half_size and local_z >= -half_size and local_z <= half_size
+
+
+func _get_region_coordinates_for_local_position(local_x: float, local_z: float) -> Vector2i:
+	if not _point_inside_local_terrain(local_x, local_z):
+		return Vector2i(-1, -1)
+	var chunk_world_size := terrain_size / float(maxi(1, chunks_per_side))
+	var half_size := terrain_size * 0.5
+	return Vector2i(
+		clampi(floori((local_x + half_size) / chunk_world_size), 0, chunks_per_side - 1),
+		clampi(floori((local_z + half_size) / chunk_world_size), 0, chunks_per_side - 1)
+	)
+
+
+func _sample_active_heightfield_normal(local_x: float, local_z: float) -> Vector3:
+	if _active_heightfield == null or not _active_heightfield.is_valid():
+		return Vector3.UP
+	var sample_step := maxf(_active_heightfield.step, 0.001)
+	var left_height := _active_heightfield.sample_world(local_x - sample_step, local_z)
+	var right_height := _active_heightfield.sample_world(local_x + sample_step, local_z)
+	var back_height := _active_heightfield.sample_world(local_x, local_z - sample_step)
+	var forward_height := _active_heightfield.sample_world(local_x, local_z + sample_step)
+	return Vector3(left_height - right_height, sample_step * 2.0, back_height - forward_height).normalized()
+
+
+func _region_key(chunk_x: int, chunk_z: int) -> String:
+	return "%d_%d" % [chunk_x, chunk_z]
+
+
+func _get_region_data_directory() -> String:
+	var directory := region_data_directory.strip_edges()
+	if directory.is_empty():
+		directory = "%s/regions" % _get_generated_resource_directory()
+	if not directory.begins_with("res://"):
+		directory = "res://%s" % directory.trim_prefix("/")
+	while directory.ends_with("/") and directory.length() > "res://".length():
+		directory = directory.trim_suffix("/")
+	return directory
+
+
+func _get_region_data_path(chunk_x: int, chunk_z: int) -> String:
+	return "%s/TerrainRegion_%02d_%02d.tres" % [_get_region_data_directory(), chunk_x, chunk_z]
+
+
+func _ensure_region_data_index() -> void:
+	if _region_data_by_key.is_empty():
+		_load_region_data_index()
+	if _region_data_by_key.is_empty() and _has_generated_chunks():
+		_rebuild_missing_region_data_from_chunks(false)
+
+
+func _load_region_data_index() -> void:
+	_region_data_by_key.clear()
+	var directory := _get_region_data_directory()
+	var dir := DirAccess.open(directory)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while not file_name.is_empty():
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var resource := ResourceLoader.load("%s/%s" % [directory, file_name], "", ResourceLoader.CACHE_MODE_REPLACE)
+			if resource != null and resource.get_script() == TerrainRegionDataScript:
+				var coordinates: Vector2i = resource.region_coordinates
+				_region_data_by_key[_region_key(coordinates.x, coordinates.y)] = resource
+		file_name = dir.get_next()
+
+
+func _rebuild_missing_region_data_from_chunks(save_resources: bool) -> void:
+	if not region_data_enabled:
+		return
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	if save_resources:
+		var directory_error := DirAccess.make_dir_recursive_absolute(_get_region_data_directory())
+		if directory_error != OK:
+			push_warning("Could not create region data directory. Error code: %d" % directory_error)
+			return
+
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null:
+			continue
+		var coordinates := _get_chunk_coordinates(chunk)
+		var key := _region_key(coordinates.x, coordinates.y)
+		if _region_data_by_key.has(key) and not save_resources:
+			continue
+		var region := _create_region_data_for_chunk(chunk, coordinates.x, coordinates.y)
+		_region_data_by_key[key] = region
+		chunk.set_meta("terrain_region_data_path", _get_region_data_path(coordinates.x, coordinates.y))
+		if save_resources:
+			var save_error := ResourceSaver.save(region, _get_region_data_path(coordinates.x, coordinates.y))
+			if save_error != OK:
+				push_warning("Could not save region data for %s. Error code: %d" % [chunk.name, save_error])
+
+
+func _create_region_data_for_chunk(chunk: MeshInstance3D, chunk_x: int, chunk_z: int) -> Resource:
+	var region: Resource = TerrainRegionDataScript.new()
+	var chunk_world_size := terrain_size / float(maxi(1, chunks_per_side))
+	var min_x := float(chunk_x) * chunk_world_size - terrain_size * 0.5
+	var min_z := float(chunk_z) * chunk_world_size - terrain_size * 0.5
+	region.region_coordinates = Vector2i(chunk_x, chunk_z)
+	region.chunk_name = chunk.name
+	region.resolution = _active_chunk_resolution
+	region.terrain_size = terrain_size
+	region.world_min = Vector2(min_x, min_z)
+	region.world_max = Vector2(min_x + chunk_world_size, min_z + chunk_world_size)
+	region.height_samples = _extract_chunk_height_samples(chunk_x, chunk_z)
+	var lod_mesh_paths := PackedStringArray()
+	for lod_index in LOD_STRIDES.size():
+		lod_mesh_paths.append(str(chunk.get_meta(_get_lod_meta_key(lod_index), "")))
+	region.lod_mesh_paths = lod_mesh_paths
+	return region
+
+
+func _extract_chunk_height_samples(chunk_x: int, chunk_z: int) -> PackedFloat32Array:
+	var samples := PackedFloat32Array()
+	var resolution := _active_chunk_resolution
+	samples.resize((resolution + 1) * (resolution + 1))
+	var start_grid_x := chunk_x * resolution
+	var start_grid_z := chunk_z * resolution
+	for z in resolution + 1:
+		for x in resolution + 1:
+			samples[z * (resolution + 1) + x] = _active_heightfield.sample_grid(start_grid_x + x, start_grid_z + z) if _active_heightfield.is_valid() else 0.0
+	return samples
 
 
 func _should_process_automatic_lod_focus() -> bool:
@@ -2602,6 +3698,10 @@ func _set_chunk_lod(chunk: MeshInstance3D, lod_index: int) -> void:
 		lod_mesh = _rebuild_chunk_lod_mesh(chunk, lod_index, mesh_path)
 		if lod_mesh == null:
 			return
+	if _chunk_uses_v5_masks(chunk) and _mesh_needs_paint_weight_reset(lod_mesh):
+		lod_mesh = _reset_array_mesh_masks(lod_mesh)
+		if not mesh_path.is_empty():
+			ResourceSaver.save(lod_mesh, mesh_path)
 
 	chunk.mesh = lod_mesh
 	chunk.set_meta("terrain_current_lod", lod_index)
@@ -2661,6 +3761,22 @@ func _get_collision_target_chunks() -> Array[MeshInstance3D]:
 		if _chunk_is_in_collision_coverage(chunk):
 			targets.append(chunk)
 
+	if targets.is_empty() and collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+		var nearest_chunk: MeshInstance3D = null
+		var nearest_distance := INF
+		var focus := _last_dynamic_collision_focus if _last_dynamic_collision_focus.is_finite() else culling_center
+		for child in chunks_root.get_children():
+			var chunk := child as MeshInstance3D
+			if chunk == null:
+				continue
+			var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
+			var distance := chunk_center.distance_to(focus)
+			if distance < nearest_distance:
+				nearest_distance = distance
+				nearest_chunk = chunk
+		if nearest_chunk != null:
+			targets.append(nearest_chunk)
+
 	return targets
 
 
@@ -2673,13 +3789,18 @@ func _chunk_is_in_collision_coverage(chunk: MeshInstance3D) -> bool:
 				return true
 			var visible_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
 			return visible_center.distance_to(culling_center) <= visible_radius
+		CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+			var dynamic_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
+			var focus := _last_dynamic_collision_focus if _last_dynamic_collision_focus.is_finite() else culling_center
+			return dynamic_center.distance_to(focus) <= _get_effective_dynamic_collision_radius()
 		_:
 			var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
 			return chunk_center.distance_to(culling_center) <= _get_effective_collision_radius()
 
 
 func _build_next_collision_chunks() -> void:
-	var build_count := mini(collision_chunks_per_frame, _pending_collision_chunks.size())
+	var per_frame := dynamic_collision_max_chunks_per_frame if collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS else collision_chunks_per_frame
+	var build_count := mini(per_frame, _pending_collision_chunks.size())
 
 	for _build_index in build_count:
 		var chunk: MeshInstance3D = _pending_collision_chunks.pop_front()
@@ -2688,14 +3809,16 @@ func _build_next_collision_chunks() -> void:
 
 	if _pending_collision_chunks.is_empty():
 		_is_generating_collision = false
-		if final_terrain_locked and save_final_meshes_as_resources:
+		if final_terrain_locked and save_final_meshes_as_resources and collision_coverage != CollisionCoverage.DYNAMIC_NEAR_FOCUS:
 			var save_error := _save_generated_resources(false)
 			if save_error != OK:
 				push_warning("Could not save generated collision resources. Error code: %d" % save_error)
-		_make_generated_nodes_scene_owned()
+		if collision_coverage != CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+			_make_generated_nodes_scene_owned()
 		_apply_collision_visual_visibility()
 		_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
-		print(_last_bake_state)
+		if collision_coverage != CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+			print(_last_bake_state)
 		_update_processing_state()
 
 
@@ -2710,7 +3833,17 @@ func _clear_collision_outside_targets() -> void:
 			_remove_collision_from_chunk(chunk)
 
 
+func _chunk_has_current_collision(chunk: MeshInstance3D) -> bool:
+	var collision_shape := chunk.get_node_or_null("CollisionBody/CollisionShape") as CollisionShape3D
+	if collision_shape == null or collision_shape.shape == null:
+		return false
+	return int(collision_shape.get_meta("terrain_collision_quality", -1)) == clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+
+
 func _refresh_collision_for_focus_if_needed() -> void:
+	if collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS:
+		_refresh_dynamic_collision(true)
+		return
 	if collision_coverage != CollisionCoverage.NEAR_CENTER:
 		return
 	if not _has_generated_collision():
@@ -2739,6 +3872,53 @@ func _get_effective_collision_radius() -> float:
 	if auto_performance_settings:
 		return terrain_size * 0.35
 	return collision_radius
+
+
+func _get_effective_dynamic_collision_radius() -> float:
+	return dynamic_collision_radius if dynamic_collision_radius > 0.0 else terrain_size * 0.25
+
+
+func _should_process_dynamic_collision() -> bool:
+	return dynamic_collision_enabled and collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS and _has_generated_chunks()
+
+
+func _update_dynamic_collision_focus() -> void:
+	if not _should_process_dynamic_collision() or _is_generating_collision:
+		return
+	var focus := _get_automatic_lod_focus()
+	if not focus.is_finite():
+		focus = culling_center
+	if not focus.is_finite():
+		return
+	focus = _clamp_focus_to_terrain_bounds(focus)
+	var update_distance := dynamic_collision_update_distance
+	if update_distance <= 0.0:
+		update_distance = terrain_size / float(maxi(1, chunks_per_side))
+	if not _last_dynamic_collision_focus.is_finite() or focus.distance_to(_last_dynamic_collision_focus) >= update_distance:
+		_refresh_dynamic_collision(false)
+
+
+func _refresh_dynamic_collision(force: bool) -> void:
+	if not dynamic_collision_enabled or collision_coverage != CollisionCoverage.DYNAMIC_NEAR_FOCUS or not _has_generated_chunks():
+		return
+	var focus := _get_automatic_lod_focus()
+	if not focus.is_finite():
+		focus = culling_center
+	if not focus.is_finite():
+		return
+	focus = _clamp_focus_to_terrain_bounds(focus)
+	if not force and _last_dynamic_collision_focus.is_finite() and focus.distance_to(_last_dynamic_collision_focus) < maxf(dynamic_collision_update_distance, 0.001):
+		return
+	_last_dynamic_collision_focus = focus
+	generate_collision_for_existing_terrain()
+
+
+func _clamp_focus_to_terrain_bounds(focus: Vector2) -> Vector2:
+	var half_size := terrain_size * 0.5
+	return Vector2(
+		clampf(focus.x, -half_size, half_size),
+		clampf(focus.y, -half_size, half_size)
+	)
 
 
 func _has_generated_chunks() -> bool:
@@ -2926,6 +4106,7 @@ func _add_collision_from_existing_mesh(chunk_mesh_instance: MeshInstance3D) -> v
 	collision_shape.name = "CollisionShape"
 	collision_shape.visible = collision_visuals_visible
 	collision_shape.shape = _create_terrain_collision_shape(collision_mesh)
+	collision_shape.set_meta("terrain_collision_quality", clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
 
@@ -2944,6 +4125,7 @@ func _add_chunk_collision(chunk_mesh_instance: MeshInstance3D, chunk_x: int, chu
 	collision_shape.visible = collision_visuals_visible
 	var collision_stride: int = LOD_STRIDES[clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)]
 	collision_shape.shape = _create_terrain_collision_shape(_build_chunk_mesh(chunk_x, chunk_z, collision_stride, collision_stride > 1))
+	collision_shape.set_meta("terrain_collision_quality", clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
 
@@ -3089,8 +4271,18 @@ func _assign_materials_to_existing_chunks() -> void:
 	for child in chunks_root.get_children():
 		var chunk := child as MeshInstance3D
 		if chunk != null:
+			_ensure_chunk_paint_weight_encoding(chunk)
 			chunk.material_override = _get_material_for_chunk(chunk)
 			chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if _terrain_should_cast_shadows() else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+func _ensure_chunk_paint_weight_encoding(chunk: MeshInstance3D) -> void:
+	if chunk == null or not _chunk_uses_v5_masks(chunk) or not (chunk.mesh is ArrayMesh):
+		return
+	var array_mesh := chunk.mesh as ArrayMesh
+	if not _mesh_needs_paint_weight_reset(array_mesh):
+		return
+	_reset_chunk_mesh_masks(chunk)
 
 
 func _maybe_externalize_final_visual_resources() -> void:

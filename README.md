@@ -8,8 +8,12 @@ Procedural terrain generator for Godot 4.6, packaged as an editor addon with a `
 - Fast preview mode and progressive final generation to keep the editor responsive.
 - Noise controls for seed, terrain scale, frequency, octaves, lacunarity, gain, and height scale.
 - Shared heightfield pipeline with noise or imported 16-bit PNG heightmaps.
+- Terrain3D-inspired region data resources for final terrain metadata, queries, painting, and scatter.
+- Public terrain query API for height, normal, slope, region lookup, and projecting positions onto terrain.
 - Native Godot `.tres` terrain presets for saving and loading styles/settings.
-- Heightmap export to grayscale PNG.
+- Heightmap import/export for PNG, EXR, and R16/RAW workflows.
+- Material mask painting-lite API for editing visual layer influence without height sculpting.
+- Deterministic static MultiMesh scatter foundation with cell-based culling.
 - Visual material modes for basic generated colors or imported PBR texture layers.
 - Configurable texture layers for sand, forest ground, upper grass/rock, rocky terrain, cliff faces, and snow.
 - Shader-based stochastic texture bombing to reduce obvious tiling on large terrain surfaces.
@@ -106,6 +110,8 @@ This is intentionally expensive. Use preview mode while tuning, then generate fi
 - `Heightmap` imports a PNG heightmap and resamples it to the active terrain grid.
 
 Heightmap import replaces procedural noise shape data. `Height Scale` still controls the vertical amplitude, and imported values are mapped into the terrain height range. Flip and invert controls help match heightmaps from third-party terrain tools.
+
+PNG remains available for simple workflows, but EXR or R16/RAW is recommended for terrain exchange when height precision matters. R16/RAW import requires explicit width, height, and min/max height because raw files do not store metadata.
 
 ### Terrain Pattern
 
@@ -210,6 +216,8 @@ Profile behavior:
 ## Collision
 
 Collision is separate from visual LOD. For game-ready output, use the `Game Ready` bake preset, which sets `Collision Mode` to `Final Only`, `Collision Coverage` to `All Chunks`, and `Collision Quality` to `Half`.
+
+`Dynamic Near Focus` collision is available for editor testing and lightweight prototypes. It follows the same target/camera/culling focus used by viewport LOD and only keeps collision near that focus.
 
 Collision controls:
 

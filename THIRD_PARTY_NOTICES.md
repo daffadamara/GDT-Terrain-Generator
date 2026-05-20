@@ -15,3 +15,11 @@ Poly Haven: https://polyhaven.com/
 CC0 license summary: https://polyhaven.com/license
 
 These textures are examples for the development/demo project. `GDT Terrain Generator` also works without them by using Basic Colors mode or user-assigned texture folders.
+
+## Terrain3D Architectural Reference
+
+V7 terrain data, query, dynamic-collision, and MultiMesh scatter planning was informed by the open-source Terrain3D addon by TokisanGames.
+
+Terrain3D is licensed under the MIT License. GDT Terrain does not copy Terrain3D source code; it uses Terrain3D only as a reference for terrain-system concepts and tradeoffs.
+
+Terrain3D: https://github.com/TokisanGames/Terrain3D

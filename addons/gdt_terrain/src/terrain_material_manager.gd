@@ -18,6 +18,12 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 uniform bool use_procedural_detail = true;
 uniform int material_mode = 0;
 uniform bool snow_enabled = true;
+uniform bool lowland_layer_enabled = true;
+uniform bool ground_layer_enabled = true;
+uniform bool upper_layer_enabled = true;
+uniform bool rocky_layer_enabled = true;
+uniform bool cliff_layer_enabled = true;
+uniform bool snow_layer_enabled = true;
 uniform sampler2D macro_noise_texture;
 uniform sampler2D detail_noise_texture;
 uniform sampler2D lowland_albedo_texture : source_color, repeat_enable;
@@ -44,6 +50,30 @@ uniform sampler2D snow_albedo_texture : source_color, repeat_enable;
 uniform sampler2D snow_normal_texture : hint_normal, repeat_enable;
 uniform sampler2D snow_roughness_texture : repeat_enable;
 uniform sampler2D snow_height_texture : repeat_enable;
+uniform sampler2D paint_lowland_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_lowland_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_lowland_roughness_texture : repeat_enable;
+uniform sampler2D paint_lowland_height_texture : repeat_enable;
+uniform sampler2D paint_ground_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_ground_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_ground_roughness_texture : repeat_enable;
+uniform sampler2D paint_ground_height_texture : repeat_enable;
+uniform sampler2D paint_upper_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_upper_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_upper_roughness_texture : repeat_enable;
+uniform sampler2D paint_upper_height_texture : repeat_enable;
+uniform sampler2D paint_rocky_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_rocky_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_rocky_roughness_texture : repeat_enable;
+uniform sampler2D paint_rocky_height_texture : repeat_enable;
+uniform sampler2D paint_cliff_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_cliff_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_cliff_roughness_texture : repeat_enable;
+uniform sampler2D paint_cliff_height_texture : repeat_enable;
+uniform sampler2D paint_snow_albedo_texture : source_color, repeat_enable;
+uniform sampler2D paint_snow_normal_texture : hint_normal, repeat_enable;
+uniform sampler2D paint_snow_roughness_texture : repeat_enable;
+uniform sampler2D paint_snow_height_texture : repeat_enable;
 uniform vec4 lowland_color : source_color = vec4(0.15, 0.21, 0.09, 1.0);
 uniform vec4 grass_color : source_color = vec4(0.24, 0.33, 0.15, 1.0);
 uniform vec4 rock_color : source_color = vec4(0.27, 0.24, 0.18, 1.0);
@@ -260,14 +290,16 @@ void vertex() {
 }
 
 void fragment() {
-	float normalized_height = clamp(COLOR.r, 0.0, 1.0);
-	float slope = clamp(COLOR.g, 0.0, 1.0);
-	float baked_snow_mask = clamp(COLOR.a, 0.0, 1.0);
+	float normalized_height = clamp((terrain_height / max(height_scale, 0.001) + 1.0) * 0.5, 0.0, 1.0);
+	float slope = clamp(1.0 - world_normal.y, 0.0, 1.0);
+	vec4 painted_weights_rgba = clamp(COLOR, vec4(0.0), vec4(1.0));
+	vec2 painted_weights_uv2 = clamp(UV2, vec2(0.0), vec2(1.0));
+	float painted_total = painted_weights_rgba.r + painted_weights_rgba.g + painted_weights_rgba.b + painted_weights_rgba.a + painted_weights_uv2.x + painted_weights_uv2.y;
 	vec3 color = mix(lowland_color.rgb, grass_color.rgb, soft_band(0.20, 0.78, normalized_height));
 
 	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), slope);
 	float snow_blend_width = max(height_scale * 0.12, 0.35);
-	float snow_amount = snow_enabled ? max(soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height), baked_snow_mask * 0.20) : 0.0;
+	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
 
 	if (use_procedural_detail) {
 		float macro_noise = texture(macro_noise_texture, world_position.xz * macro_variation_scale).r * 2.0 - 1.0;
@@ -285,6 +317,22 @@ void fragment() {
 
 	float roughness = mix(0.92, 0.64, rock_amount);
 
+	if (material_mode != 1 && painted_total > 0.001) {
+		float painted_lowland = painted_weights_rgba.r / max(painted_total, 0.0001);
+		float painted_ground = painted_weights_rgba.g / max(painted_total, 0.0001);
+		float painted_upper = painted_weights_rgba.b / max(painted_total, 0.0001);
+		float painted_rocky = painted_weights_rgba.a / max(painted_total, 0.0001);
+		float painted_cliff = painted_weights_uv2.x / max(painted_total, 0.0001);
+		float painted_snow = painted_weights_uv2.y / max(painted_total, 0.0001);
+		float paint_opacity = clamp(painted_total, 0.0, 1.0);
+		vec3 painted_color = lowland_color.rgb * painted_lowland
+			+ grass_color.rgb * (painted_ground + painted_upper)
+			+ rock_color.rgb * (painted_rocky + painted_cliff)
+			+ snow_color.rgb * painted_snow;
+		color = mix(color, painted_color, paint_opacity);
+		roughness = mix(roughness, 0.86, paint_opacity);
+	}
+
 	if (material_mode == 1) {
 		float blend_softness = max(layer_blend_softness, 0.001);
 		vec3 tile_weights = macro_tile_weights();
@@ -299,6 +347,13 @@ void fragment() {
 		float rocky_weight = rock_amount * (1.0 - soft_band(0.72, 0.92, slope));
 		float cliff_weight = soft_band(max(0.0, rock_slope_threshold + 0.18), 0.88, slope);
 		float snow_weight = snow_amount;
+
+		float non_snow_weight = 1.0 - snow_weight;
+		lowland_weight *= non_snow_weight;
+		ground_weight *= non_snow_weight;
+		upper_weight *= non_snow_weight;
+		rocky_weight *= non_snow_weight;
+		cliff_weight *= non_snow_weight;
 
 		float far_cache_min_distance = max(far_texture_radius * 1.8, terrain_world_size * 0.45);
 		float far_cache_horizontal_distance = distance(world_position.xz, texture_focus_position.xz);
@@ -331,6 +386,24 @@ void fragment() {
 			cliff_weight /= total_weight;
 			snow_weight /= total_weight;
 
+			bool use_painted_material = painted_total > 0.001;
+			float paint_opacity = clamp(painted_total, 0.0, 1.0);
+			float painted_lowland = 0.0;
+			float painted_ground = 0.0;
+			float painted_upper = 0.0;
+			float painted_rocky = 0.0;
+			float painted_cliff = 0.0;
+			float painted_snow = 0.0;
+			if (use_painted_material) {
+				float safe_painted_total = max(painted_total, 0.0001);
+				painted_lowland = painted_weights_rgba.r / safe_painted_total;
+				painted_ground = painted_weights_rgba.g / safe_painted_total;
+				painted_upper = painted_weights_rgba.b / safe_painted_total;
+				painted_rocky = painted_weights_rgba.a / safe_painted_total;
+				painted_cliff = painted_weights_uv2.x / safe_painted_total;
+				painted_snow = painted_weights_uv2.y / safe_painted_total;
+			}
+
 			vec3 lowland_albedo = sample_macro_bombed(lowland_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83).rgb;
 			vec3 ground_albedo = sample_macro_bombed(ground_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0).rgb;
 			vec3 upper_albedo = sample_macro_bombed(upper_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92).rgb;
@@ -338,6 +411,16 @@ void fragment() {
 			vec3 cliff_albedo = sample_triplanar_albedo(cliff_albedo_texture, world_position, world_normal, cliff_tile_scale);
 			vec3 snow_albedo = sample_macro_bombed(snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
 			color = lowland_albedo * lowland_weight + ground_albedo * ground_weight + upper_albedo * upper_weight + rocky_albedo * rocky_weight + cliff_albedo * cliff_weight + snow_albedo * snow_weight;
+			if (use_painted_material) {
+				vec3 paint_lowland_albedo = sample_macro_bombed(paint_lowland_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83).rgb;
+				vec3 paint_ground_albedo = sample_macro_bombed(paint_ground_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0).rgb;
+				vec3 paint_upper_albedo = sample_macro_bombed(paint_upper_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92).rgb;
+				vec3 paint_rocky_albedo = sample_macro_bombed(paint_rocky_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15).rgb;
+				vec3 paint_cliff_albedo = sample_triplanar_albedo(paint_cliff_albedo_texture, world_position, world_normal, cliff_tile_scale);
+				vec3 paint_snow_albedo = sample_macro_bombed(paint_snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
+				vec3 paint_color = paint_lowland_albedo * painted_lowland + paint_ground_albedo * painted_ground + paint_upper_albedo * painted_upper + paint_rocky_albedo * painted_rocky + paint_cliff_albedo * painted_cliff + paint_snow_albedo * painted_snow;
+				color = mix(color, paint_color, paint_opacity);
+			}
 
 			bool use_surface_detail = material_performance_preset == 0 || tile_weights.z < 0.85;
 			if (use_surface_detail) {
@@ -347,7 +430,18 @@ void fragment() {
 				vec3 rocky_normal = sample_macro_bombed_normal(rocky_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
 				vec3 cliff_normal = sample_triplanar_normal(cliff_normal_texture, world_position, world_normal, cliff_tile_scale);
 				vec3 snow_normal = sample_macro_bombed_normal(snow_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-				NORMAL_MAP = lowland_normal * lowland_weight + ground_normal * ground_weight + upper_normal * upper_weight + rocky_normal * rocky_weight + cliff_normal * cliff_weight + snow_normal * snow_weight;
+				vec3 procedural_normal = lowland_normal * lowland_weight + ground_normal * ground_weight + upper_normal * upper_weight + rocky_normal * rocky_weight + cliff_normal * cliff_weight + snow_normal * snow_weight;
+				NORMAL_MAP = procedural_normal;
+				if (use_painted_material) {
+					vec3 paint_lowland_normal = sample_macro_bombed_normal(paint_lowland_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
+					vec3 paint_ground_normal = sample_macro_bombed_normal(paint_ground_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
+					vec3 paint_upper_normal = sample_macro_bombed_normal(paint_upper_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
+					vec3 paint_rocky_normal = sample_macro_bombed_normal(paint_rocky_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
+					vec3 paint_cliff_normal = sample_triplanar_normal(paint_cliff_normal_texture, world_position, world_normal, cliff_tile_scale);
+					vec3 paint_snow_normal = sample_macro_bombed_normal(paint_snow_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
+					vec3 paint_normal = paint_lowland_normal * painted_lowland + paint_ground_normal * painted_ground + paint_upper_normal * painted_upper + paint_rocky_normal * painted_rocky + paint_cliff_normal * painted_cliff + paint_snow_normal * painted_snow;
+					NORMAL_MAP = mix(procedural_normal, paint_normal, paint_opacity);
+				}
 				NORMAL_MAP_DEPTH = texture_normal_strength;
 
 				float lowland_roughness = sample_macro_bombed_scalar(lowland_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
@@ -356,7 +450,18 @@ void fragment() {
 				float rocky_roughness = sample_macro_bombed_scalar(rocky_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
 				float cliff_roughness = sample_triplanar_scalar(cliff_roughness_texture, world_position, world_normal, cliff_tile_scale);
 				float snow_roughness = sample_macro_bombed_scalar(snow_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-				roughness = lowland_roughness * lowland_weight + ground_roughness * ground_weight + upper_roughness * upper_weight + rocky_roughness * rocky_weight + cliff_roughness * cliff_weight + snow_roughness * snow_weight;
+				float procedural_roughness = lowland_roughness * lowland_weight + ground_roughness * ground_weight + upper_roughness * upper_weight + rocky_roughness * rocky_weight + cliff_roughness * cliff_weight + snow_roughness * snow_weight;
+				roughness = procedural_roughness;
+				if (use_painted_material) {
+					float paint_lowland_roughness = sample_macro_bombed_scalar(paint_lowland_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
+					float paint_ground_roughness = sample_macro_bombed_scalar(paint_ground_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
+					float paint_upper_roughness = sample_macro_bombed_scalar(paint_upper_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
+					float paint_rocky_roughness = sample_macro_bombed_scalar(paint_rocky_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
+					float paint_cliff_roughness = sample_triplanar_scalar(paint_cliff_roughness_texture, world_position, world_normal, cliff_tile_scale);
+					float paint_snow_roughness = sample_macro_bombed_scalar(paint_snow_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
+					float paint_roughness = paint_lowland_roughness * painted_lowland + paint_ground_roughness * painted_ground + paint_upper_roughness * painted_upper + paint_rocky_roughness * painted_rocky + paint_cliff_roughness * painted_cliff + paint_snow_roughness * painted_snow;
+					roughness = mix(procedural_roughness, paint_roughness, paint_opacity);
+				}
 				roughness = clamp(roughness * roughness_multiplier, 0.04, 1.0);
 			} else {
 				roughness = clamp(0.88 * roughness_multiplier, 0.04, 1.0);
@@ -432,6 +537,7 @@ var _terrain_macro_noise_texture: Texture2D
 var _terrain_detail_noise_texture: Texture2D
 var _terrain_far_color_cache_texture: Texture2D
 var _terrain_far_color_cache_available := false
+var _far_color_cache_signature := ""
 var _fallback_albedo_texture: Texture2D
 var _fallback_normal_texture: Texture2D
 var _fallback_scalar_texture: Texture2D
@@ -499,6 +605,10 @@ func configure(settings: Dictionary) -> void:
 	snow_detail_strength = float(settings.get("snow_detail_strength", snow_detail_strength))
 	material_brightness = float(settings.get("material_brightness", material_brightness))
 	material_contrast = float(settings.get("material_contrast", material_contrast))
+	var next_far_cache_signature := _get_far_color_cache_signature()
+	if not _far_color_cache_signature.is_empty() and next_far_cache_signature != _far_color_cache_signature:
+		_invalidate_far_color_cache()
+	_far_color_cache_signature = next_far_cache_signature
 	update_materials()
 
 
@@ -522,7 +632,41 @@ func set_texture_focus_position(focus_position: Vector3) -> void:
 func reset_noise_textures() -> void:
 	_terrain_macro_noise_texture = null
 	_terrain_detail_noise_texture = null
+	_invalidate_far_color_cache()
 	update_materials()
+
+
+func _invalidate_far_color_cache() -> void:
+	_terrain_far_color_cache_texture = _create_solid_texture(grass_color)
+	_terrain_far_color_cache_available = false
+
+
+func _get_far_color_cache_signature() -> String:
+	return str([
+		material_seed,
+		material_mode,
+		height_scale,
+		snow_enabled,
+		snow_height,
+		rock_slope_threshold,
+		lowland_material_folder,
+		ground_material_folder,
+		upper_material_folder,
+		rocky_material_folder,
+		cliff_material_folder,
+		snow_material_folder,
+		lowland_layer_enabled,
+		ground_layer_enabled,
+		upper_layer_enabled,
+		rocky_layer_enabled,
+		cliff_layer_enabled,
+		snow_layer_enabled,
+		far_texture_tile_scale,
+		layer_blend_softness,
+		height_blend_strength,
+		far_material_cache_resolution,
+		terrain_world_size,
+	])
 
 
 func save_visual_resources(resource_directory: String, heightfield: RefCounted = null) -> int:
@@ -533,6 +677,7 @@ func save_visual_resources(resource_directory: String, heightfield: RefCounted =
 	if far_material_cache_enabled:
 		_terrain_far_color_cache_texture = _create_far_color_cache_texture(heightfield)
 		_terrain_far_color_cache_available = true
+		_far_color_cache_signature = _get_far_color_cache_signature()
 	update_materials()
 
 	var macro_error := ResourceSaver.save(_get_or_create_terrain_macro_noise_texture(), "%s/%s" % [resource_directory, TERRAIN_MACRO_NOISE_PATH])
@@ -613,17 +758,30 @@ func _update_terrain_shader_parameters() -> void:
 		if material == null:
 			continue
 		material.shader = _get_or_create_terrain_shader()
-		material.set_shader_parameter("use_procedural_detail", material == _procedural_terrain_material and procedural_material_enabled)
-		material.set_shader_parameter("material_mode", material_mode)
+		var material_uses_procedural: bool = material == _procedural_terrain_material and procedural_material_enabled
+		material.set_shader_parameter("use_procedural_detail", material_uses_procedural)
+		material.set_shader_parameter("material_mode", material_mode if material_uses_procedural else 0)
 		material.set_shader_parameter("snow_enabled", snow_enabled)
 		material.set_shader_parameter("macro_noise_texture", _get_or_create_terrain_macro_noise_texture())
 		material.set_shader_parameter("detail_noise_texture", _get_or_create_terrain_detail_noise_texture())
-		_set_layer_shader_parameters(material, "lowland", _get_material_folder_for_layer_slot(0))
-		_set_layer_shader_parameters(material, "ground", _get_material_folder_for_layer_slot(1))
-		_set_layer_shader_parameters(material, "upper", _get_material_folder_for_layer_slot(2))
-		_set_layer_shader_parameters(material, "rocky", _get_material_folder_for_layer_slot(3))
-		_set_layer_shader_parameters(material, "cliff", _get_material_folder_for_layer_slot(4))
-		_set_layer_shader_parameters(material, "snow", _get_material_folder_for_layer_slot(5))
+		_set_layer_shader_parameters(material, "lowland", _get_material_folder_for_layer_slot(0) if material_uses_procedural else lowland_material_folder)
+		_set_layer_shader_parameters(material, "ground", _get_material_folder_for_layer_slot(1) if material_uses_procedural else ground_material_folder)
+		_set_layer_shader_parameters(material, "upper", _get_material_folder_for_layer_slot(2) if material_uses_procedural else upper_material_folder)
+		_set_layer_shader_parameters(material, "rocky", _get_material_folder_for_layer_slot(3) if material_uses_procedural else rocky_material_folder)
+		_set_layer_shader_parameters(material, "cliff", _get_material_folder_for_layer_slot(4) if material_uses_procedural else cliff_material_folder)
+		_set_layer_shader_parameters(material, "snow", _get_material_folder_for_layer_slot(5) if material_uses_procedural else snow_material_folder)
+		_set_layer_shader_parameters(material, "paint_lowland", lowland_material_folder)
+		_set_layer_shader_parameters(material, "paint_ground", ground_material_folder)
+		_set_layer_shader_parameters(material, "paint_upper", upper_material_folder)
+		_set_layer_shader_parameters(material, "paint_rocky", rocky_material_folder)
+		_set_layer_shader_parameters(material, "paint_cliff", cliff_material_folder)
+		_set_layer_shader_parameters(material, "paint_snow", snow_material_folder)
+		material.set_shader_parameter("lowland_layer_enabled", lowland_layer_enabled)
+		material.set_shader_parameter("ground_layer_enabled", ground_layer_enabled)
+		material.set_shader_parameter("upper_layer_enabled", upper_layer_enabled)
+		material.set_shader_parameter("rocky_layer_enabled", rocky_layer_enabled)
+		material.set_shader_parameter("cliff_layer_enabled", cliff_layer_enabled)
+		material.set_shader_parameter("snow_layer_enabled", snow_layer_enabled)
 		material.set_shader_parameter("lowland_color", lowland_color)
 		material.set_shader_parameter("grass_color", grass_color)
 		material.set_shader_parameter("rock_color", rock_color)
@@ -708,7 +866,8 @@ func _load_material_texture(folder: String, token: String, fallback: Texture2D) 
 	directory.list_dir_begin()
 	var file_name := directory.get_next()
 	while not file_name.is_empty():
-		if not directory.current_is_dir() and file_name.to_lower().contains(token):
+		var lower_file_name := file_name.to_lower()
+		if not directory.current_is_dir() and not lower_file_name.ends_with(".import") and lower_file_name.contains(token):
 			var texture_path := "%s/%s" % [normalized_folder, file_name]
 			var loaded_texture := _load_texture_from_path(texture_path)
 			directory.list_dir_end()
@@ -863,6 +1022,13 @@ func _far_cache_color_for_sample(
 	var cliff_weight := _smoothstep(maxf(0.0, rock_slope_threshold + 0.18), 0.88, slope)
 	var snow_weight := snow_amount
 
+	var non_snow_weight := 1.0 - snow_weight
+	lowland_weight *= non_snow_weight
+	ground_weight *= non_snow_weight
+	upper_weight *= non_snow_weight
+	rocky_weight *= non_snow_weight
+	cliff_weight *= non_snow_weight
+
 	var total_weight := maxf(lowland_weight + ground_weight + upper_weight + rocky_weight + cliff_weight + snow_weight, 0.0001)
 
 	var far_uv := world_xz * maxf(far_texture_tile_scale, 0.001)
@@ -898,7 +1064,8 @@ func _load_material_image(folder: String, token: String) -> Image:
 	directory.list_dir_begin()
 	var file_name := directory.get_next()
 	while not file_name.is_empty():
-		if not directory.current_is_dir() and file_name.to_lower().contains(token):
+		var lower_file_name := file_name.to_lower()
+		if not directory.current_is_dir() and not lower_file_name.ends_with(".import") and lower_file_name.contains(token):
 			var texture := ResourceLoader.load("%s/%s" % [normalized_folder, file_name], "Texture2D", ResourceLoader.CACHE_MODE_REPLACE) as Texture2D
 			var image := _prepare_sample_image(texture.get_image() if texture != null else null)
 			directory.list_dir_end()
