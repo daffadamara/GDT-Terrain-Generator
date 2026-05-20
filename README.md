@@ -77,6 +77,8 @@ The demo scene includes a simple character, camera, light, and terrain node so y
 
 This addon project is part of my hobby aside from my job. Created with the help of Codex. I will keep this updated when I have a free time. Thank you for your understanding.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/V7L61ZVBKK)
+
 ## License
 
 MIT. See `LICENSE`.
