@@ -1,5 +1,8 @@
 # GDT Terrain Generator
 
+<img width="1820" height="1242" alt="Screenshot 2026-05-20 at 11 17 58" src="https://github.com/user-attachments/assets/ac9d9ee0-cad4-4567-bdba-bc68d375ee7e" />
+
+
 GDT Terrain Generator is a Godot 4 editor addon for creating procedural 3D terrain. It adds a `GdtTerrain3D` node that can generate preview terrain while you work, then bake final terrain meshes, materials, LODs, and optional collision for gameplay.
 
 ## Features
