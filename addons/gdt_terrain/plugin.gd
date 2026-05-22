@@ -4,23 +4,36 @@ extends EditorPlugin
 const TERRAIN_TYPE_NAME := "GdtTerrain3D"
 const TERRAIN_BASE_TYPE := "Node3D"
 const TERRAIN_SCRIPT := preload("res://addons/gdt_terrain/src/gdt_terrain_3d.gd")
+const EDITOR_UI_SCRIPT := preload("res://addons/gdt_terrain/src/editor/gdt_terrain_editor_ui.gd")
 const BRUSH_PREVIEW_NAME := "_GdtTerrainBrushPreview"
 const BRUSH_SEGMENTS := 96
 const MAX_STAMPS_PER_MOTION := 8
 
 var _edited_terrain
+var _editor_ui
 var _brush_preview: MeshInstance3D
 var _brush_material: StandardMaterial3D
 var _brush_pressed := false
 var _last_stamp_position := Vector3.INF
+var _last_editor_viewport_camera_position := Vector3.INF
 
 
 func _enter_tree() -> void:
 	var icon := get_editor_interface().get_base_control().get_theme_icon("Node3D", "EditorIcons")
 	add_custom_type(TERRAIN_TYPE_NAME, TERRAIN_BASE_TYPE, TERRAIN_SCRIPT, icon)
+	_editor_ui = EDITOR_UI_SCRIPT.new()
+	_editor_ui.setup(self)
+	_editor_ui.tool_selected.connect(_on_editor_tool_selected)
+	_editor_ui.property_changed.connect(_on_editor_property_changed)
+	_editor_ui.action_requested.connect(_on_editor_action_requested)
+	set_process(true)
 
 
 func _exit_tree() -> void:
+	if _editor_ui != null:
+		_editor_ui.cleanup()
+		_editor_ui = null
+	set_process(false)
 	_clear_brush_preview()
 	remove_custom_type(TERRAIN_TYPE_NAME)
 
@@ -33,11 +46,143 @@ func _edit(object: Object) -> void:
 	_edited_terrain = object if _handles(object) else null
 	_brush_pressed = false
 	_last_stamp_position = Vector3.INF
+	if _editor_ui != null:
+		_editor_ui.set_terrain(_edited_terrain)
 	if _edited_terrain == null:
 		_clear_brush_preview()
+	else:
+		_sync_editor_camera_focus()
+
+
+func _on_editor_tool_selected(tool_id: int) -> void:
+	if _edited_terrain == null:
+		return
+	_brush_pressed = false
+	_last_stamp_position = Vector3.INF
+	match tool_id:
+		EDITOR_UI_SCRIPT.TOOL_NONE:
+			_edited_terrain.editor_brush_enabled = false
+			_hide_brush_preview()
+		EDITOR_UI_SCRIPT.TOOL_PAINT:
+			_edited_terrain.editor_brush_enabled = true
+			_edited_terrain.editor_brush_mode = EDITOR_UI_SCRIPT.TOOL_PAINT
+			_edited_terrain.paint_enabled = true
+		EDITOR_UI_SCRIPT.TOOL_SCATTER_ADD:
+			_edited_terrain.editor_brush_enabled = true
+			_edited_terrain.editor_brush_mode = EDITOR_UI_SCRIPT.TOOL_SCATTER_ADD
+			_edited_terrain.scatter_enabled = true
+		EDITOR_UI_SCRIPT.TOOL_SCATTER_ERASE:
+			_edited_terrain.editor_brush_enabled = true
+			_edited_terrain.editor_brush_mode = EDITOR_UI_SCRIPT.TOOL_SCATTER_ERASE
+			_edited_terrain.scatter_enabled = true
+	_refresh_editor_ui()
+
+
+func _on_editor_property_changed(property_name: StringName, value) -> void:
+	if _edited_terrain == null:
+		return
+	_edited_terrain.set(property_name, value)
+	_refresh_editor_ui(false)
+
+
+func _on_editor_action_requested(action_id: int) -> void:
+	if _edited_terrain == null:
+		return
+	match action_id:
+		EDITOR_UI_SCRIPT.ACTION_GENERATE_PREVIEW:
+			_edited_terrain.generate_preview_now()
+		EDITOR_UI_SCRIPT.ACTION_GENERATE_FINAL:
+			_edited_terrain.generate_final_now()
+		EDITOR_UI_SCRIPT.ACTION_CANCEL_GENERATION:
+			_edited_terrain.cancel_generation()
+		EDITOR_UI_SCRIPT.ACTION_CLEAR_TERRAIN:
+			_edited_terrain.clear_generated_terrain()
+			_hide_brush_preview()
+		EDITOR_UI_SCRIPT.ACTION_SAVE_PRESET:
+			_edited_terrain.save_preset()
+		EDITOR_UI_SCRIPT.ACTION_LOAD_PRESET:
+			_edited_terrain.load_preset()
+		EDITOR_UI_SCRIPT.ACTION_EXPORT_HEIGHTMAP:
+			_edited_terrain.export_heightmap()
+		EDITOR_UI_SCRIPT.ACTION_SAVE_MESH_RESOURCES:
+			_edited_terrain.externalize_generated_resources()
+		EDITOR_UI_SCRIPT.ACTION_SETUP_PREVIEW_LIGHTING:
+			_edited_terrain.setup_preview_lighting()
+		EDITOR_UI_SCRIPT.ACTION_SETUP_FOCUS_CAMERA:
+			_edited_terrain.setup_texture_focus_camera()
+		EDITOR_UI_SCRIPT.ACTION_GENERATE_COLLISION:
+			_edited_terrain.generate_collision_for_existing_terrain()
+		EDITOR_UI_SCRIPT.ACTION_REMOVE_COLLISION:
+			_edited_terrain.remove_generated_collision()
+		EDITOR_UI_SCRIPT.ACTION_REVEAL_ALL_CHUNKS:
+			_edited_terrain.reveal_all_generated_chunks()
+		EDITOR_UI_SCRIPT.ACTION_REBUILD_REGION_DATA:
+			_edited_terrain.rebuild_region_data()
+		EDITOR_UI_SCRIPT.ACTION_CLEAR_PAINTED_MASKS:
+			_edited_terrain.clear_painted_material_masks()
+		EDITOR_UI_SCRIPT.ACTION_GENERATE_SCATTER:
+			_edited_terrain.generate_scatter()
+		EDITOR_UI_SCRIPT.ACTION_CLEAR_SCATTER:
+			_edited_terrain.clear_scatter()
+		EDITOR_UI_SCRIPT.ACTION_PRINT_PERFORMANCE_SUMMARY:
+			_edited_terrain.print_performance_summary()
+	_refresh_editor_ui()
+
+
+func _refresh_editor_ui(rebuild_settings: bool = true) -> void:
+	if _edited_terrain != null and _edited_terrain.has_method("notify_property_list_changed"):
+		_edited_terrain.notify_property_list_changed()
+	if _editor_ui != null and rebuild_settings:
+		_editor_ui.refresh()
+
+
+func _process(_delta: float) -> void:
+	if _editor_ui != null and _edited_terrain != null:
+		_editor_ui.refresh_status()
+	_sync_editor_camera_focus()
+
+
+func _sync_editor_camera_focus() -> void:
+	var camera_position := _get_editor_viewport_camera_position()
+	if camera_position.is_finite():
+		_last_editor_viewport_camera_position = camera_position
+	elif _last_editor_viewport_camera_position.is_finite():
+		camera_position = _last_editor_viewport_camera_position
+	else:
+		return
+
+	var scene_tree := get_tree()
+	var edited_scene_root := scene_tree.edited_scene_root if scene_tree != null else null
+	if edited_scene_root == null:
+		return
+	_sync_editor_camera_focus_recursive(edited_scene_root, camera_position)
+
+
+func _sync_editor_camera_focus_recursive(node: Node, camera_position: Vector3) -> void:
+	if node is Node3D and node.get_script() == TERRAIN_SCRIPT and node.has_method("set_editor_texture_focus_position"):
+		node.set_editor_texture_focus_position(camera_position)
+	for child in node.get_children():
+		_sync_editor_camera_focus_recursive(child, camera_position)
+
+
+func _get_editor_viewport_camera_position() -> Vector3:
+	var editor_interface := get_editor_interface()
+	if editor_interface == null:
+		return Vector3.INF
+	for viewport_index in 4:
+		var editor_viewport = editor_interface.get_editor_viewport_3d(viewport_index)
+		if editor_viewport == null:
+			continue
+		var editor_camera := editor_viewport.get_camera_3d()
+		if editor_camera != null:
+			return editor_camera.global_position
+	return Vector3.INF
 
 
 func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
+	if viewport_camera != null:
+		_last_editor_viewport_camera_position = viewport_camera.global_position
+		_sync_editor_camera_focus()
 	if _edited_terrain == null:
 		return EditorPlugin.AFTER_GUI_INPUT_PASS
 	if not _is_brush_active():

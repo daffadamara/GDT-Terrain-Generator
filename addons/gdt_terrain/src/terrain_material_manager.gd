@@ -18,9 +18,9 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 uniform bool use_procedural_detail = true;
 uniform int material_mode = 0;
 uniform bool snow_enabled = true;
-uniform bool lowland_layer_enabled = true;
+uniform bool lowland_layer_enabled = false;
 uniform bool ground_layer_enabled = true;
-uniform bool upper_layer_enabled = true;
+uniform bool upper_layer_enabled = false;
 uniform bool rocky_layer_enabled = true;
 uniform bool cliff_layer_enabled = true;
 uniform bool snow_layer_enabled = true;
@@ -78,18 +78,18 @@ uniform vec4 lowland_color : source_color = vec4(0.15, 0.21, 0.09, 1.0);
 uniform vec4 grass_color : source_color = vec4(0.24, 0.33, 0.15, 1.0);
 uniform vec4 rock_color : source_color = vec4(0.27, 0.24, 0.18, 1.0);
 uniform vec4 snow_color : source_color = vec4(0.86, 0.84, 0.76, 1.0);
-uniform float height_scale = 5.0;
+uniform float height_scale = 2.0;
 uniform float snow_height = 5.0;
 uniform float rock_slope_threshold = 0.44;
 uniform float texture_tile_scale = 0.18;
 uniform bool macro_texture_tiling_enabled = true;
 uniform vec3 texture_focus_position = vec3(0.0);
-uniform float close_texture_tile_scale = 0.30;
-uniform float medium_texture_tile_scale = 0.18;
-uniform float far_texture_tile_scale = 0.075;
-uniform float close_texture_radius = 32.0;
-uniform float medium_texture_radius = 96.0;
-uniform float far_texture_radius = 192.0;
+uniform float close_texture_tile_scale = 0.20;
+uniform float medium_texture_tile_scale = 0.03;
+uniform float far_texture_tile_scale = 0.01;
+uniform float close_texture_radius = 24.0;
+uniform float medium_texture_radius = 48.0;
+uniform float far_texture_radius = 92.0;
 uniform float layer_blend_softness = 0.18;
 uniform float texture_normal_strength = 0.75;
 uniform float roughness_multiplier = 1.0;
@@ -97,8 +97,8 @@ uniform float height_blend_strength = 0.12;
 uniform bool texture_bombing_enabled = true;
 uniform float texture_bombing_strength = 0.55;
 uniform float texture_bombing_cell_scale = 0.65;
-uniform int texture_bombing_samples = 1;
-uniform int material_performance_preset = 1;
+uniform int texture_bombing_samples = 2;
+uniform int material_performance_preset = 2;
 uniform bool far_material_cache_enabled = true;
 uniform sampler2D far_material_cache_texture : source_color, filter_linear, repeat_disable;
 uniform float terrain_world_size = 64.0;
@@ -108,8 +108,8 @@ uniform float detail_noise_strength = 0.10;
 uniform float detail_noise_scale = 0.45;
 uniform float rock_detail_strength = 0.25;
 uniform float snow_detail_strength = 0.08;
-uniform float material_brightness = 1.32;
-uniform float material_contrast = 1.0;
+uniform float material_brightness = 1.2;
+uniform float material_contrast = 1.05;
 
 varying float terrain_height;
 varying vec3 world_position;
@@ -134,7 +134,7 @@ vec3 macro_tile_weights() {
 		return vec3(0.0, 1.0, 0.0);
 	}
 
-	float focus_distance = distance(world_position, texture_focus_position);
+	float focus_distance = distance(world_position.xz, texture_focus_position.xz);
 	float close_radius = max(close_texture_radius, 0.001);
 	float medium_radius = max(medium_texture_radius, close_radius + 0.001);
 	float far_radius = max(far_texture_radius, medium_radius + 0.001);
@@ -216,7 +216,8 @@ vec4 sample_macro_bombed(sampler2D source_texture, vec3 tile_weights, vec2 close
 
 	vec4 result = vec4(0.0);
 	if (tile_weights.x > 0.001) {
-		result += sample_bombed_limited(source_texture, close_uv * layer_scale, texture_bombing_samples) * tile_weights.x;
+		int close_samples = material_performance_preset >= 2 ? min(texture_bombing_samples, 1) : texture_bombing_samples;
+		result += sample_bombed_limited(source_texture, close_uv * layer_scale, close_samples) * tile_weights.x;
 	}
 	if (tile_weights.y > 0.001) {
 		int medium_samples = material_performance_preset == 0 ? texture_bombing_samples : min(texture_bombing_samples, 1);
@@ -301,7 +302,7 @@ void fragment() {
 	float snow_blend_width = max(height_scale * 0.12, 0.35);
 	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
 
-	if (use_procedural_detail) {
+	if (use_procedural_detail && material_mode != 1) {
 		float macro_noise = texture(macro_noise_texture, world_position.xz * macro_variation_scale).r * 2.0 - 1.0;
 		float detail_noise = texture(detail_noise_texture, world_position.xz * detail_noise_scale).r * 2.0 - 1.0;
 		color *= 1.0 + macro_noise * macro_variation_strength;
@@ -355,14 +356,18 @@ void fragment() {
 		rocky_weight *= non_snow_weight;
 		cliff_weight *= non_snow_weight;
 
-		float far_cache_min_distance = max(far_texture_radius * 1.8, terrain_world_size * 0.45);
+		float far_cache_min_distance = max(far_texture_radius * 1.45, terrain_world_size * 0.34);
+		if (material_performance_preset >= 2) {
+			far_cache_min_distance = max(far_texture_radius * 1.05, terrain_world_size * 0.22);
+		}
 		float far_cache_horizontal_distance = distance(world_position.xz, texture_focus_position.xz);
-		bool use_far_cache = far_material_cache_enabled && material_performance_preset > 0 && tile_weights.z > 0.995 && far_cache_horizontal_distance > far_cache_min_distance;
+		float far_cache_tile_threshold = material_performance_preset >= 2 ? 0.92 : 0.97;
+		bool use_far_cache = far_material_cache_enabled && material_performance_preset > 0 && tile_weights.z > far_cache_tile_threshold && far_cache_horizontal_distance > far_cache_min_distance;
 		if (use_far_cache) {
 			color = texture(far_material_cache_texture, terrain_cache_uv()).rgb;
 			roughness = clamp(0.88 * roughness_multiplier, 0.04, 1.0);
 		} else {
-			bool use_height_blend = material_performance_preset == 0 || tile_weights.x > 0.001;
+			bool use_height_blend = material_performance_preset == 0 || (material_performance_preset == 1 && tile_weights.x > 0.20);
 			if (use_height_blend) {
 				float lowland_height = sample_macro_bombed_scalar(lowland_height_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
 				float ground_height = sample_macro_bombed_scalar(ground_height_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
@@ -411,7 +416,8 @@ void fragment() {
 			vec3 cliff_albedo = sample_triplanar_albedo(cliff_albedo_texture, world_position, world_normal, cliff_tile_scale);
 			vec3 snow_albedo = sample_macro_bombed(snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
 			color = lowland_albedo * lowland_weight + ground_albedo * ground_weight + upper_albedo * upper_weight + rocky_albedo * rocky_weight + cliff_albedo * cliff_weight + snow_albedo * snow_weight;
-			if (use_painted_material) {
+			bool use_painted_texture_material = use_painted_material && (material_performance_preset == 0 || tile_weights.z < 0.75);
+			if (use_painted_texture_material) {
 				vec3 paint_lowland_albedo = sample_macro_bombed(paint_lowland_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83).rgb;
 				vec3 paint_ground_albedo = sample_macro_bombed(paint_ground_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0).rgb;
 				vec3 paint_upper_albedo = sample_macro_bombed(paint_upper_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92).rgb;
@@ -420,9 +426,12 @@ void fragment() {
 				vec3 paint_snow_albedo = sample_macro_bombed(paint_snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
 				vec3 paint_color = paint_lowland_albedo * painted_lowland + paint_ground_albedo * painted_ground + paint_upper_albedo * painted_upper + paint_rocky_albedo * painted_rocky + paint_cliff_albedo * painted_cliff + paint_snow_albedo * painted_snow;
 				color = mix(color, paint_color, paint_opacity);
+			} else if (use_painted_material) {
+				vec3 paint_color = lowland_albedo * painted_lowland + ground_albedo * painted_ground + upper_albedo * painted_upper + rocky_albedo * painted_rocky + cliff_albedo * painted_cliff + snow_albedo * painted_snow;
+				color = mix(color, paint_color, paint_opacity);
 			}
 
-			bool use_surface_detail = material_performance_preset == 0 || tile_weights.z < 0.85;
+			bool use_surface_detail = material_performance_preset == 0 || (material_performance_preset == 1 && tile_weights.z < 0.70) || (material_performance_preset >= 2 && tile_weights.x > 0.92);
 			if (use_surface_detail) {
 				vec3 lowland_normal = sample_macro_bombed_normal(lowland_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
 				vec3 ground_normal = sample_macro_bombed_normal(ground_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
@@ -478,7 +487,7 @@ void fragment() {
 var generated_resource_directory := "res://generated_terrain"
 var material_seed := 1345
 var material_mode := 1
-var height_scale := 5.0
+var height_scale := 2.0
 var snow_enabled := true
 var snow_height := 5.0
 var rock_slope_threshold := 0.44
@@ -492,21 +501,21 @@ var upper_material_folder := "res://material/aerial_grass_rock"
 var rocky_material_folder := "res://material/rocky_terrain"
 var cliff_material_folder := "res://material/rock_face"
 var snow_material_folder := "res://material/snow"
-var lowland_layer_enabled := true
+var lowland_layer_enabled := false
 var ground_layer_enabled := true
-var upper_layer_enabled := true
+var upper_layer_enabled := false
 var rocky_layer_enabled := true
 var cliff_layer_enabled := true
 var snow_layer_enabled := true
 var texture_tile_scale := 0.18
 var macro_texture_tiling_enabled := true
 var texture_focus_position := Vector3.ZERO
-var close_texture_tile_scale := 0.30
-var medium_texture_tile_scale := 0.18
-var far_texture_tile_scale := 0.075
-var close_texture_radius := 32.0
-var medium_texture_radius := 96.0
-var far_texture_radius := 192.0
+var close_texture_tile_scale := 0.20
+var medium_texture_tile_scale := 0.03
+var far_texture_tile_scale := 0.01
+var close_texture_radius := 24.0
+var medium_texture_radius := 48.0
+var far_texture_radius := 92.0
 var layer_blend_softness := 0.18
 var texture_normal_strength := 0.75
 var roughness_multiplier := 1.0
@@ -514,8 +523,8 @@ var height_blend_strength := 0.12
 var texture_bombing_enabled := true
 var texture_bombing_strength := 0.55
 var texture_bombing_cell_scale := 0.65
-var texture_bombing_samples := 1
-var material_performance_preset := 1
+var texture_bombing_samples := 2
+var material_performance_preset := 2
 var far_material_cache_enabled := true
 var far_material_cache_resolution := 512
 var terrain_world_size := 64.0
@@ -526,8 +535,8 @@ var detail_noise_strength := 0.10
 var detail_noise_scale := 0.45
 var rock_detail_strength := 0.25
 var snow_detail_strength := 0.08
-var material_brightness := 1.32
-var material_contrast := 1.0
+var material_brightness := 1.2
+var material_contrast := 1.05
 
 var _legacy_terrain_material: StandardMaterial3D
 var _procedural_terrain_material: ShaderMaterial
@@ -759,11 +768,13 @@ func _update_terrain_shader_parameters() -> void:
 			continue
 		material.shader = _get_or_create_terrain_shader()
 		var material_uses_procedural: bool = material == _procedural_terrain_material and procedural_material_enabled
-		material.set_shader_parameter("use_procedural_detail", material_uses_procedural)
+		var material_uses_color_detail := material_uses_procedural and material_mode != 1
+		material.set_shader_parameter("use_procedural_detail", material_uses_color_detail)
 		material.set_shader_parameter("material_mode", material_mode if material_uses_procedural else 0)
 		material.set_shader_parameter("snow_enabled", snow_enabled)
-		material.set_shader_parameter("macro_noise_texture", _get_or_create_terrain_macro_noise_texture())
-		material.set_shader_parameter("detail_noise_texture", _get_or_create_terrain_detail_noise_texture())
+		if material_uses_color_detail:
+			material.set_shader_parameter("macro_noise_texture", _get_or_create_terrain_macro_noise_texture())
+			material.set_shader_parameter("detail_noise_texture", _get_or_create_terrain_detail_noise_texture())
 		_set_layer_shader_parameters(material, "lowland", _get_material_folder_for_layer_slot(0) if material_uses_procedural else lowland_material_folder)
 		_set_layer_shader_parameters(material, "ground", _get_material_folder_for_layer_slot(1) if material_uses_procedural else ground_material_folder)
 		_set_layer_shader_parameters(material, "upper", _get_material_folder_for_layer_slot(2) if material_uses_procedural else upper_material_folder)

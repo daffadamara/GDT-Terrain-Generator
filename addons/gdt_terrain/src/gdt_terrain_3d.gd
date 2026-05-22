@@ -27,12 +27,14 @@ enum PaintMode { ADD, SUBTRACT, SMOOTH }
 enum EditorBrushMode { MATERIAL_PAINT, SCATTER_ADD, SCATTER_ERASE }
 enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS, REBUILD_REGION_DATA, CLEAR_PAINTED_MASKS, GENERATE_SCATTER, CLEAR_SCATTER }
 enum GenerationPhase { IDLE, BUILDING_MESH_ARRAYS, FINALIZING_CHUNKS, SAVING_LODS, GENERATING_COLLISION, SAVING_RESOURCES }
+enum TextureFocusMode { TERRAIN_CENTER, TARGET_NODE, ACTIVE_CAMERA }
 
 const TERRAIN_CHUNKS_NAME := "TerrainChunks"
 const TERRAIN_SCATTER_NAME := "TerrainScatter"
 const SHADER_PREVIEW_NAME := "ShaderPreviewTerrain"
 const PREVIEW_LIGHT_NAME := "TerrainPreviewLight"
 const PREVIEW_ENVIRONMENT_NAME := "TerrainPreviewEnvironment"
+const TEXTURE_FOCUS_CAMERA_NAME := "TextureFocusCamera"
 const LEGACY_TERRAIN_MESH_NAME := "TerrainMesh"
 const LEGACY_TERRAIN_BODY_NAME := "TerrainBody"
 const DEFAULT_GENERATED_RESOURCE_DIR := "res://generated_terrain"
@@ -41,6 +43,8 @@ const TERRAIN_LOD_EDGE_VERSION := 3
 const TERRAIN_ENCODING_V5_MASKS := "v5_masks"
 const TERRAIN_ENCODING_LEGACY_COLORS := "legacy_colors"
 const TERRAIN_PAINT_ENCODING_WEIGHTS_V1 := "paint_weights_v1"
+const PERFORMANCE_FRAME_SPIKE_MSEC := 33.0
+const LOD_HYSTERESIS_RATIO := 0.035
 
 const SHADER_PREVIEW_CODE := """
 shader_type spatial;
@@ -56,11 +60,11 @@ uniform float height_min = -5.0;
 uniform float height_max = 5.0;
 uniform float terrain_size = 64.0;
 uniform float height_texel_size = 0.001953125;
-uniform float height_scale = 5.0;
+uniform float height_scale = 2.0;
 uniform float snow_height = 5.0;
 uniform float rock_slope_threshold = 0.44;
-uniform float material_brightness = 1.32;
-uniform float material_contrast = 1.0;
+uniform float material_brightness = 1.2;
+uniform float material_contrast = 1.05;
 
 varying float terrain_height;
 varying float terrain_slope;
@@ -117,7 +121,7 @@ void fragment() {
 }
 """
 
-@export_category("Terrain Shape")
+@export_category("Terrain")
 
 ## Full terrain width and depth in Godot units. This is the size of the whole chunk grid, not a single chunk.
 @export_range(4.0, 512.0, 1.0) var terrain_size: float = 64.0:
@@ -135,20 +139,20 @@ void fragment() {
 		_queue_regenerate()
 
 ## Number of chunks along each side of the terrain. More chunks cover the same world size with more total detail.
-@export_range(1, 16, 1) var chunks_per_side: int = 1:
+@export_range(1, 16, 1) var chunks_per_side: int = 4:
 	set(value):
 		chunks_per_side = clampi(value, 1, 16)
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
 ## Vertical height multiplier for the terrain. Higher values create taller mountains and deeper valleys.
-@export_range(0.0, 64.0, 0.1) var height_scale: float = 5.0:
+@export_range(0.0, 64.0, 0.1) var height_scale: float = 2.0:
 	set(value):
 		height_scale = maxf(0.0, value)
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
-@export_category("Terrain Pattern")
+@export_group("Noise")
 
 ## Random seed for the noise. Change this to get a different terrain layout while keeping the same style.
 @export var terrain_seed: int = 1345:
@@ -193,7 +197,7 @@ void fragment() {
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
-@export_category("Terrain Source")
+@export_category("Source")
 
 ## Chooses where terrain heights come from. Noise uses the procedural controls; Heightmap imports a 16-bit PNG and replaces noise shape data.
 @export_enum("Noise", "Heightmap") var source_mode: int = SourceMode.NOISE:
@@ -265,7 +269,7 @@ void fragment() {
 		_mark_heightfield_dirty()
 		_queue_regenerate()
 
-@export_category("Region Data")
+@export_group("Region Data")
 
 ## Saves Terrain3D-inspired per-chunk region resources so final terrain can be queried and extended after reload.
 @export var region_data_enabled: bool = true
@@ -276,7 +280,7 @@ void fragment() {
 ## Folder for saved region metadata resources.
 @export_dir var region_data_directory: String = "res://generated_terrain/regions"
 
-@export_category("Environment")
+@export_category("Surface Rules")
 
 ## World Y height where terrain begins blending toward snow. Updates existing terrain colors without rebuilding chunks.
 @export var snow_enabled: bool = true:
@@ -320,9 +324,11 @@ void fragment() {
 		snow_color = value
 		_queue_visual_update()
 
-@export_category("Visual Material")
+@export_category("Materials")
 
-## Uses a procedural shader material for newly generated terrain. Existing V4 chunks remain visible, but regenerate once for full V5 mask-based visuals.
+@export_group("Mode")
+
+## Uses a procedural shader material for newly generated terrain. Existing chunks remain visible, but regenerate once for full material mask visuals.
 @export var procedural_material_enabled: bool = true:
 	set(value):
 		procedural_material_enabled = value
@@ -332,10 +338,14 @@ void fragment() {
 @export_enum("Basic Colors", "Texture Layers") var material_mode: int = TerrainMaterialMode.TEXTURE_LAYERS:
 	set(value):
 		material_mode = clampi(value, TerrainMaterialMode.BASIC_COLORS, TerrainMaterialMode.TEXTURE_LAYERS)
+		_update_material_focus(true)
+		_update_processing_state()
 		_update_visual_materials()
 
+@export_group("Layer Sources")
+
 ## Enables the low-elevation texture source. Disabled texture sources are removed from the ordered layer stack.
-@export var lowland_layer_enabled: bool = true:
+@export var lowland_layer_enabled: bool = false:
 	set(value):
 		lowland_layer_enabled = value
 		_update_visual_materials()
@@ -359,7 +369,7 @@ void fragment() {
 		_update_visual_materials()
 
 ## Enables the upper grass/rock texture source.
-@export var upper_layer_enabled: bool = true:
+@export var upper_layer_enabled: bool = false:
 	set(value):
 		upper_layer_enabled = value
 		_update_visual_materials()
@@ -406,53 +416,74 @@ void fragment() {
 		snow_material_folder = value
 		_update_visual_materials()
 
+@export_group("Tiling")
+
 ## World-space texture tiling density for layered terrain materials.
 @export_range(0.01, 2.0, 0.01) var texture_tile_scale: float = 0.18:
 	set(value):
 		texture_tile_scale = maxf(0.01, value)
 		_update_visual_materials()
 
-## Blends close, medium, and far texture tiling by distance from the LOD target or active camera.
+## Blends close, medium, and far texture tiling by distance from the selected texture focus.
 @export var macro_texture_tiling_enabled: bool = true:
 	set(value):
 		macro_texture_tiling_enabled = value
+		_update_material_focus(true)
+		_update_processing_state()
 		_update_visual_materials()
 
+# Internal focus for close/medium/far texture tiling. Active Camera keeps nearby detail around the player/editor view.
+@export_storage var texture_focus_mode: int = TextureFocusMode.ACTIVE_CAMERA:
+	set(value):
+		texture_focus_mode = clampi(value, TextureFocusMode.TERRAIN_CENTER, TextureFocusMode.ACTIVE_CAMERA)
+		_update_material_focus(true)
+		_update_processing_state()
+		_update_visual_materials()
+
+# Optional internal Node3D used when Texture Focus Mode is Target Node.
+@export_storage var texture_focus_target_path: NodePath:
+	set(value):
+		texture_focus_target_path = value
+		_update_material_focus(true)
+		_update_processing_state()
+
 ## Close-range texture density. Higher values create smaller, sharper nearby tiles.
-@export_range(0.01, 2.0, 0.01) var close_texture_tile_scale: float = 0.30:
+@export_range(0.01, 2.0, 0.01) var close_texture_tile_scale: float = 0.20:
 	set(value):
 		close_texture_tile_scale = maxf(0.01, value)
 		_update_visual_materials()
 
 ## Medium-range texture density used through the normal viewing distance.
-@export_range(0.01, 2.0, 0.01) var medium_texture_tile_scale: float = 0.18:
+@export_range(0.01, 2.0, 0.01) var medium_texture_tile_scale: float = 0.03:
 	set(value):
 		medium_texture_tile_scale = maxf(0.01, value)
 		_update_visual_materials()
 
 ## Far-range texture density. Lower values create larger broad distant tiles.
-@export_range(0.01, 2.0, 0.01) var far_texture_tile_scale: float = 0.075:
+@export_range(0.01, 2.0, 0.01) var far_texture_tile_scale: float = 0.01:
 	set(value):
 		far_texture_tile_scale = maxf(0.01, value)
 		_update_visual_materials()
 
 ## Distance from the focus point that keeps close texture tiling fully active.
-@export_range(0.0, 4096.0, 0.1) var close_texture_radius: float = 32.0:
+@export_range(0.0, 4096.0, 0.1) var close_texture_radius: float = 24.0:
 	set(value):
 		close_texture_radius = maxf(0.0, value)
 		_update_visual_materials()
 
 ## Distance where close tiling has fully blended into medium tiling.
-@export_range(0.0, 4096.0, 0.1) var medium_texture_radius: float = 96.0:
+@export_range(0.0, 4096.0, 0.1) var medium_texture_radius: float = 48.0:
 	set(value):
 		medium_texture_radius = maxf(0.0, value)
 		_update_visual_materials()
 
 ## Distance where medium tiling has fully blended into far tiling.
-@export_range(0.0, 4096.0, 0.1) var far_texture_radius: float = 192.0:
+@export_range(0.0, 4096.0, 0.1) var far_texture_radius: float = 92.0:
 	set(value):
 		far_texture_radius = maxf(0.0, value)
 		_update_visual_materials()
+
+@export_group("Layer Blend")
 
 ## Softens transitions between terrain texture layers.
 @export_range(0.01, 1.0, 0.01) var layer_blend_softness: float = 0.18:
@@ -478,79 +509,82 @@ void fragment() {
 		height_blend_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
-## Randomizes texture UV cells to reduce visible tiling repetition.
+## Randomizes texture UV cells to reduce visible tiling repetition. Enabled uses the quality sampler path.
 @export var texture_bombing_enabled: bool = true:
 	set(value):
 		texture_bombing_enabled = value
+		texture_bombing_samples = TextureBombingSamples.QUALITY if texture_bombing_enabled else TextureBombingSamples.OFF
 		_update_visual_materials()
 
-## Strength of stochastic UV offsets and rotations.
-@export_range(0.0, 1.0, 0.01) var texture_bombing_strength: float = 0.55:
+## Strength of stochastic UV offsets and rotations. Hidden because Texture Bombing Enabled is the simple UX control.
+var texture_bombing_strength: float = 0.55:
 	set(value):
 		texture_bombing_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
-## World-space size of stochastic texture bombing cells.
-@export_range(0.05, 4.0, 0.01) var texture_bombing_cell_scale: float = 0.65:
+## World-space size of stochastic texture bombing cells. Hidden because Texture Bombing Enabled is the simple UX control.
+var texture_bombing_cell_scale: float = 0.65:
 	set(value):
 		texture_bombing_cell_scale = maxf(0.05, value)
 		_update_visual_materials()
 
-## Number of randomized texture samples used for texture bombing.
-@export_enum("Off", "Light", "Quality") var texture_bombing_samples: int = TextureBombingSamples.LIGHT:
+# Legacy sampler count kept for old scenes and presets. The inspector now exposes Texture Bombing Enabled only.
+var texture_bombing_samples: int = TextureBombingSamples.QUALITY:
 	set(value):
 		texture_bombing_samples = clampi(value, TextureBombingSamples.OFF, TextureBombingSamples.QUALITY)
-		_update_visual_materials()
 
-## Strength of broad color variation across the terrain surface. Higher values break up flat color bands.
-@export_range(0.0, 1.0, 0.01) var macro_variation_strength: float = 0.18:
+@export_group("Color")
+
+## Basic Colors mode broad color variation. Hidden from the Inspector because texture layers override it.
+var macro_variation_strength: float = 0.18:
 	set(value):
 		macro_variation_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
-## World-space scale of broad material variation. Lower values make larger patches; higher values make tighter variation.
-@export_range(0.001, 1.0, 0.001) var macro_variation_scale: float = 0.04:
+## Basic Colors mode broad variation scale. Hidden from the Inspector because texture layers override it.
+var macro_variation_scale: float = 0.04:
 	set(value):
 		macro_variation_scale = maxf(0.001, value)
 		_update_visual_materials()
 
-## Strength of fine procedural noise on grass, rock, and snow. Keep low for stable viewport performance.
-@export_range(0.0, 1.0, 0.01) var detail_noise_strength: float = 0.15:
+## Basic Colors mode fine procedural noise. Hidden from the Inspector because texture layers override it.
+var detail_noise_strength: float = 0.15:
 	set(value):
 		detail_noise_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
-## World-space scale of fine procedural detail. Higher values make smaller speckled detail.
-@export_range(0.01, 4.0, 0.01) var detail_noise_scale: float = 0.45:
+## Basic Colors mode fine procedural noise scale. Hidden from the Inspector because texture layers override it.
+var detail_noise_scale: float = 0.45:
 	set(value):
 		detail_noise_scale = maxf(0.01, value)
 		_update_visual_materials()
 
-## Extra procedural contrast on steep rock areas.
-@export_range(0.0, 1.0, 0.01) var rock_detail_strength: float = 0.25:
+## Basic Colors mode rock detail. Hidden from the Inspector because texture layers override it.
+var rock_detail_strength: float = 0.25:
 	set(value):
 		rock_detail_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
-## Extra procedural contrast on snowy areas.
-@export_range(0.0, 1.0, 0.01) var snow_detail_strength: float = 0.08:
+## Basic Colors mode snow detail. Hidden from the Inspector because texture layers override it.
+var snow_detail_strength: float = 0.08:
 	set(value):
 		snow_detail_strength = clampf(value, 0.0, 1.0)
 		_update_visual_materials()
 
 ## Overall material brightness multiplier applied by the procedural terrain shader.
-@export_range(0.25, 2.0, 0.01) var material_brightness: float = 1.32:
+@export_range(0.25, 2.0, 0.01) var material_brightness: float = 1.2:
 	set(value):
 		material_brightness = clampf(value, 0.25, 2.0)
 		_update_visual_materials()
 
 ## Overall material contrast applied by the procedural terrain shader.
-@export_range(0.25, 2.0, 0.01) var material_contrast: float = 1.0:
+@export_range(0.25, 2.0, 0.01) var material_contrast: float = 1.05:
 	set(value):
 		material_contrast = clampf(value, 0.25, 2.0)
 		_update_visual_materials()
 
-@export_category("Workflow")
+@export_group("")
+@export_category("Bake")
 
 ## Automatically rebuilds the lightweight preview when terrain settings change.
 @export var auto_update: bool = true:
@@ -590,7 +624,7 @@ void fragment() {
 		_queue_regenerate(GenerationMode.PREVIEW)
 
 ## Number of CPU worker threads used to prepare terrain mesh arrays before main-thread finalization.
-@export_range(1, 8, 1) var generation_worker_count: int = 1
+@export_range(1, 8, 1) var generation_worker_count: int = 4
 
 ## Approximate milliseconds per frame spent on main-thread chunk finalization, LOD saving, and collision.
 @export_range(1.0, 33.0, 0.5) var finalization_time_budget_ms: float = 8.0
@@ -612,18 +646,12 @@ void fragment() {
 ## Folder used for generated binary mesh and collision resources.
 @export var generated_resource_directory: String = DEFAULT_GENERATED_RESOURCE_DIR
 
-@export_category("Presets")
+@export_category("Files")
 
 ## Path for saving or loading a native Godot terrain preset resource.
 @export_file("*.tres") var preset_path: String = "res://terrain_preset.tres"
 
-## Saves the current generator, visual, viewport, and collision settings to Preset Path.
-@export_tool_button("Save Preset") var save_preset_button = save_preset
-
-## Loads settings from Preset Path. Locked final terrain only receives non-geometry visual settings.
-@export_tool_button("Load Preset") var load_preset_button = load_preset
-
-@export_category("Heightmap I/O")
+@export_group("Heightmap Export")
 
 ## Path where Export Heightmap writes the current active heightfield. PNG, EXR, R16, and RAW are supported.
 @export_file("*.png", "*.exr", "*.r16", "*.raw") var export_heightmap_path: String = "res://terrain_heightmap.png"
@@ -634,13 +662,11 @@ void fragment() {
 ## Maximum world height encoded during EXR/R16 export. Leave Min and Max both 0 to auto-use the current terrain range.
 @export_range(-4096.0, 4096.0, 0.1) var heightmap_export_max_height: float = 0.0
 
-## Exports the current active heightfield to Export Heightmap Path.
-@export_tool_button("Export Heightmap") var export_heightmap_button = export_heightmap
+@export_group("")
+@export_category("Performance")
 
-@export_category("Viewport Performance")
-
-## Viewport-only visual detail. Lower quality draws fewer vertices and triangles, but does not change terrain settings.
-@export_enum("Full", "Half", "Quarter", "Eighth") var viewport_quality: int = ViewportQuality.FULL:
+## Viewport-only visual detail. Driven by Terrain Performance Preset.
+var viewport_quality: int = ViewportQuality.FULL:
 	set(value):
 		viewport_quality = clampi(value, ViewportQuality.FULL, ViewportQuality.EIGHTH)
 		if final_terrain_locked:
@@ -648,107 +674,106 @@ void fragment() {
 		else:
 			_queue_regenerate(_active_generation_mode, true)
 
-## Swaps saved final chunk meshes by distance from Culling Center, similar to Unity-style terrain LOD.
-@export var viewport_lod_enabled: bool = true:
+## Swaps saved final chunk meshes by distance from Culling Center. Driven by Terrain Performance Preset.
+var viewport_lod_enabled: bool = true:
 	set(value):
 		viewport_lod_enabled = value
 		_apply_viewport_culling()
 
-## Distance LOD aggressiveness. Quality keeps detail farther out; Performance drops detail sooner.
-@export_enum("Quality", "Balanced", "Performance") var lod_profile: int = LodProfile.BALANCED:
+## Distance LOD aggressiveness. Driven by Terrain Performance Preset.
+var lod_profile: int = LodProfile.BALANCED:
 	set(value):
 		lod_profile = clampi(value, LodProfile.QUALITY, LodProfile.PERFORMANCE)
 		_apply_viewport_culling()
 
-## One-click rendering budget for baked terrain. Balanced keeps nearby quality while making all-visible views cheaper.
-@export_enum("Quality", "Balanced", "Performance") var terrain_performance_preset: int = TerrainPerformancePreset.BALANCED:
+## One-click rendering budget for baked terrain. Balance keeps nearby quality while making all-visible views cheaper.
+@export_enum("Quality", "Balance", "Performance") var terrain_performance_preset: int = TerrainPerformancePreset.PERFORMANCE:
 	set(value):
 		terrain_performance_preset = clampi(value, TerrainPerformancePreset.QUALITY, TerrainPerformancePreset.PERFORMANCE)
 		_apply_terrain_performance_preset()
 
-## Adds extra visual LOD when the focus camera/player is high enough to see most of the terrain.
-@export var high_view_lod_bias_enabled: bool = true:
+## Adds extra visual LOD when the focus camera/player is high enough to see most of the terrain. Driven by Terrain Performance Preset.
+var high_view_lod_bias_enabled: bool = true:
 	set(value):
 		high_view_lod_bias_enabled = value
 		_apply_viewport_culling()
 
-## Height above the terrain origin where High View LOD Bias starts adding cheaper visual LOD.
-@export_range(0.0, 4096.0, 0.1) var high_view_lod_start_height: float = 36.0:
+## Height above the terrain origin where High View LOD Bias starts adding cheaper visual LOD. Driven by Terrain Performance Preset.
+var high_view_lod_start_height: float = 36.0:
 	set(value):
 		high_view_lod_start_height = maxf(0.0, value)
 		_apply_viewport_culling()
 
-## Height where High View LOD Bias reaches its maximum effect.
-@export_range(0.0, 4096.0, 0.1) var high_view_lod_full_height: float = 96.0:
+## Height where High View LOD Bias reaches its maximum effect. Driven by Terrain Performance Preset.
+var high_view_lod_full_height: float = 96.0:
 	set(value):
 		high_view_lod_full_height = maxf(0.0, value)
 		_apply_viewport_culling()
 
-## Maximum extra visual LOD applied at high camera/player views. Collision is unchanged.
-@export_range(0, 3, 1) var high_view_lod_max_bias: int = 2:
+## Maximum extra visual LOD applied at high camera/player views. Driven by Terrain Performance Preset.
+var high_view_lod_max_bias: int = 2:
 	set(value):
 		high_view_lod_max_bias = clampi(value, 0, 3)
 		_apply_viewport_culling()
 
 ## Terrain chunk shadow casting policy. Performance Preset disables terrain shadows in Balanced/Performance.
-@export_enum("On", "Off", "Performance Preset") var terrain_shadow_casting: int = TerrainShadowCasting.PERFORMANCE_PRESET:
+@export_enum("On", "Off", "Performance Preset") var terrain_shadow_casting: int = TerrainShadowCasting.OFF:
 	set(value):
 		terrain_shadow_casting = clampi(value, TerrainShadowCasting.ON, TerrainShadowCasting.PERFORMANCE_PRESET)
 		_apply_terrain_shadow_policy()
 
-## Saves and uses a low-resolution baked color cache for far terrain material pixels.
-@export var far_material_cache_enabled: bool = true:
+## Saves and uses a low-resolution baked color cache for far terrain material pixels. Kept automatic.
+var far_material_cache_enabled: bool = true:
 	set(value):
 		far_material_cache_enabled = value
 		_update_visual_materials()
 
-## Resolution of the whole-terrain far color cache saved with final visual resources.
-@export_range(128, 2048, 128) var far_material_cache_resolution: int = 512:
+## Resolution of the whole-terrain far color cache saved with final visual resources. Kept automatic.
+var far_material_cache_resolution: int = 512:
 	set(value):
 		far_material_cache_resolution = clampi(value, 128, 2048)
 		_update_visual_materials()
 
-@export_group("LOD Counters")
-@export var visible_lod0_chunks: int = 0
-@export var visible_lod1_chunks: int = 0
-@export var visible_lod2_chunks: int = 0
-@export var visible_lod3_chunks: int = 0
-@export var estimated_visible_triangles: int = 0
+var visible_lod0_chunks: int = 0
+var visible_lod1_chunks: int = 0
+var visible_lod2_chunks: int = 0
+var visible_lod3_chunks: int = 0
+var estimated_visible_triangles: int = 0
 
 ## Automatically moves the LOD/culling focus to LOD Target Path, or to the active camera when no target is assigned.
-@export var automatic_lod_focus: bool = true:
+var automatic_lod_focus: bool = true:
 	set(value):
 		automatic_lod_focus = value
 		_update_processing_state()
 		_update_automatic_lod_focus(true)
 
 ## Optional Node3D used as the LOD/culling focus. Leave empty to use the active camera when possible.
-@export_node_path("Node3D") var lod_target_path: NodePath:
+var lod_target_path: NodePath:
 	set(value):
 		lod_target_path = value
 		_update_automatic_lod_focus(true)
 
 ## Minimum world-unit movement before automatic focus reapplies LOD. Larger values reduce editor update work.
-@export_range(0.0, 64.0, 0.1) var lod_focus_update_distance: float = 1.0:
+var lod_focus_update_distance: float = 1.0:
 	set(value):
 		lod_focus_update_distance = maxf(0.0, value)
 
-## Hides chunks outside the visible radius to improve viewport FPS. Disable this if terrain appears to have missing chunks.
+## Hides chunks outside the visible radius to improve viewport FPS.
 @export var viewport_culling_enabled: bool = true:
 	set(value):
 		viewport_culling_enabled = value
 		_apply_viewport_culling()
 
-## Chunk centers farther than this distance from Culling Center are hidden. Auto-scales with Terrain Size until edited manually.
-@export_range(0.0, 1024.0, 0.1) var visible_radius: float = 48.0:
+## Chunk centers farther than this distance from Culling Center are hidden. Auto-scales with Terrain Size.
+@export_range(0.0, 4096.0, 0.1) var visible_radius: float = 128.0:
 	set(value):
 		visible_radius = maxf(0.0, value)
 		if not _setting_auto_visible_radius:
 			_visible_radius_auto_managed = false
 		_apply_viewport_culling()
 
-## World X/Z point used as the center of viewport culling. Move it to inspect a different area of a large terrain.
-@export var culling_center: Vector2 = Vector2.ZERO:
+## World X/Z point used as the center of viewport culling.
+var culling_center: Vector2 = Vector2.ZERO:
 	set(value):
 		culling_center = value
 		_update_material_focus_position(Vector3(culling_center.x, 0.0, culling_center.y))
@@ -756,12 +781,12 @@ void fragment() {
 		_refresh_collision_for_focus_if_needed()
 
 ## Shows or hides generated collision helper nodes in the editor viewport. This does not add or remove collision.
-@export var collision_visuals_visible: bool = false:
+var collision_visuals_visible: bool = false:
 	set(value):
 		collision_visuals_visible = value
 		_apply_collision_visual_visibility()
 
-@export_group("Advanced Manual Overrides")
+@export_group("Advanced Build Controls")
 
 ## Manual preview detail per chunk. Used only when Auto Performance Settings is off.
 @export_range(16, 256, 1) var preview_chunk_resolution: int = 64:
@@ -834,7 +859,8 @@ void fragment() {
 	set(value):
 		dynamic_collision_max_chunks_per_frame = clampi(value, 1, 16)
 
-@export_category("Editor Brush")
+@export_group("")
+@export_category("Advanced Tools")
 
 ## Enables the 3D viewport brush when this terrain node is selected.
 @export var editor_brush_enabled: bool = false
@@ -845,9 +871,9 @@ void fragment() {
 ## Minimum movement, as a fraction of brush radius, between repeated drag stamps.
 @export_range(0.01, 1.0, 0.01) var editor_brush_spacing: float = 0.16
 
-@export_category("Material Paint")
+@export_group("Paint Brush")
 
-## Enables callable material mask painting. V7 painting changes visual material masks only, not terrain height.
+## Enables callable material mask painting. Painting changes visual material masks only, not terrain height.
 @export var paint_enabled: bool = false
 
 ## Material layer affected by Paint Material Mask calls.
@@ -865,7 +891,7 @@ void fragment() {
 ## Whether painting adds, subtracts, or smooths the target material influence.
 @export_enum("Add", "Subtract", "Smooth") var paint_mode: int = PaintMode.ADD
 
-@export_category("Scatter")
+@export_group("Scatter")
 
 ## Enables static deterministic MultiMesh scatter generation.
 @export var scatter_enabled: bool = false
@@ -906,76 +932,98 @@ void fragment() {
 ## Density multiplier used by each scatter brush stamp.
 @export_range(0.0, 1.0, 0.01) var scatter_brush_strength: float = 0.5
 
-## Utility command used by Run Selected Utility. These are less common maintenance actions kept out of the primary workflow buttons.
-@export_enum("Save Mesh Resources", "Setup Preview Lighting", "Generate Collision", "Remove Collision", "Reveal All Chunks", "Rebuild Region Data", "Clear Painted Masks", "Generate Scatter", "Clear Scatter") var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
+var selected_utility_action: int = UtilityAction.SAVE_MESH_RESOURCES
 
-## Runs the utility selected above.
-@export_tool_button("Run Selected Utility") var run_selected_utility_button = run_selected_utility
-
-@export_group("")
-@export_category("Generation Status")
+# Runtime status is exposed to scripts and the editor toolbar without showing
+# read-only values as editable fields in the Inspector.
 
 ## Read-only progress counter for the current progressive build.
-@export var generated_chunks: int:
+var generated_chunks: int:
 	get:
 		return _generated_chunks
 	set(_value):
 		pass
 
 ## Read-only total number of chunks in the current progressive build.
-@export var total_chunks: int:
+var total_chunks: int:
 	get:
 		return _total_chunks
 	set(_value):
 		pass
 
 ## Read-only number of generated terrain chunks currently visible after viewport culling.
-@export var visible_chunks: int:
+var visible_chunks: int:
 	get:
 		return _count_visible_generated_chunks()
 	set(_value):
 		pass
 
 ## Read-only flag that is true while chunks are being generated across frames.
-@export var is_generating: bool:
+var is_generating: bool:
 	get:
 		return _is_generating or _is_generating_collision
 	set(_value):
 		pass
 
 ## Read-only label for the active generation phase.
-@export var generation_phase: String:
+var generation_phase: String:
 	get:
 		return _generation_phase_text
 	set(_value):
 		pass
 
 ## Read-only summary of whether the current workflow is preview-only, visual-only, or playable.
-@export var bake_state: String:
+var bake_state: String:
 	get:
 		return _last_bake_state
 	set(_value):
 		pass
 
-@export_category("Terrain Actions")
 
-@export_group("Build")
+func get_generation_status() -> Dictionary:
+	return {
+		"generated_chunks": _generated_chunks,
+		"total_chunks": _total_chunks,
+		"visible_chunks": _count_visible_generated_chunks(),
+		"is_generating": _is_generating or _is_generating_collision,
+		"generation_phase": _generation_phase_text,
+		"bake_state": _last_bake_state,
+	}
 
-## Builds a fast, lower-detail terrain preview for tuning shape and noise settings.
-@export_tool_button("Generate Preview") var generate_preview_button = generate_preview_now
 
-## Builds the final terrain at the configured full resolution, locks it, and makes generated nodes save with the scene.
-@export_tool_button("Generate Final") var generate_final_button = generate_final_now
+func print_performance_summary() -> void:
+	var visible_chunks := _count_visible_generated_chunks()
+	var scatter_instances := _count_scatter_instances()
+	var collision_chunks := _count_collision_chunks()
+	print(
+		"GDT Terrain performance: preset=%s visible_chunks=%d lod=[%d,%d,%d,%d] triangles=%d lod_swaps=%d scatter_instances=%d collision_chunks=%d peak_frame=%.2fms last_spike=%.2fms spikes=%d lod_cache=%d collision_cache=%d" % [
+			_get_performance_preset_name(),
+			visible_chunks,
+			visible_lod0_chunks,
+			visible_lod1_chunks,
+			visible_lod2_chunks,
+			visible_lod3_chunks,
+			estimated_visible_triangles,
+			_performance_lod_swap_count,
+			scatter_instances,
+			collision_chunks,
+			_performance_peak_frame_msec,
+			_performance_last_frame_spike_msec,
+			_performance_frame_spike_count,
+			_lod_mesh_cache.size(),
+			_collision_shape_cache.size(),
+		]
+	)
 
-## Stops the current progressive build and leaves already generated chunks visible.
-@export_tool_button("Cancel Generation") var cancel_generation_button = cancel_generation
 
-@export_group("Reset")
+func set_editor_texture_focus_position(focus_position: Vector3) -> void:
+	if not Engine.is_editor_hint() or not focus_position.is_finite():
+		return
+	if _editor_texture_focus_position.is_finite() and focus_position.distance_to(_editor_texture_focus_position) < 0.05:
+		return
+	_editor_texture_focus_position = focus_position
+	_update_material_focus(true)
 
-## Removes generated terrain chunks, unlocks the terrain, and resets the generation progress counters.
-@export_tool_button("Clear Generated Terrain") var clear_terrain_button = clear_generated_terrain
-
-@export_group("")
 
 var _noise := FastNoiseLite.new()
 var _material_manager := TerrainMaterialManagerScript.new()
@@ -1029,7 +1077,16 @@ var _last_dynamic_collision_focus := Vector2.INF
 var _scatter_root: Node3D
 var _last_automatic_lod_focus := Vector2.INF
 var _last_material_focus := Vector3.INF
+var _editor_texture_focus_position := Vector3.INF
 var _last_lod_focus_height := INF
+var _lod_mesh_cache: Dictionary = {}
+var _collision_shape_cache: Dictionary = {}
+var _scatter_default_mesh: Mesh
+var _performance_lod_swap_count := 0
+var _performance_peak_frame_msec := 0.0
+var _performance_last_frame_spike_msec := 0.0
+var _performance_frame_spike_count := 0
+var _last_visible_chunk_count := 0
 
 
 func _reset_generation_timings(mode: int) -> void:
@@ -1088,6 +1145,34 @@ func _set_generation_phase(phase: int) -> void:
 			_generation_phase_text = "Idle"
 
 
+func _track_runtime_frame_time(delta: float) -> void:
+	var frame_msec := delta * 1000.0
+	_performance_peak_frame_msec = maxf(_performance_peak_frame_msec, frame_msec)
+	if frame_msec >= PERFORMANCE_FRAME_SPIKE_MSEC:
+		_performance_last_frame_spike_msec = frame_msec
+		_performance_frame_spike_count += 1
+
+
+func _clear_runtime_performance_caches() -> void:
+	_lod_mesh_cache.clear()
+	_collision_shape_cache.clear()
+	_performance_lod_swap_count = 0
+	_performance_peak_frame_msec = 0.0
+	_performance_last_frame_spike_msec = 0.0
+	_performance_frame_spike_count = 0
+	_last_visible_chunk_count = 0
+
+
+func _get_performance_preset_name() -> String:
+	match terrain_performance_preset:
+		TerrainPerformancePreset.QUALITY:
+			return "Quality"
+		TerrainPerformancePreset.PERFORMANCE:
+			return "Performance"
+		_:
+			return "Balance"
+
+
 func _main_thread_budget_exhausted(start_usec: int, processed_count: int) -> bool:
 	if processed_count <= 0:
 		return false
@@ -1097,6 +1182,7 @@ func _main_thread_budget_exhausted(start_usec: int, processed_count: int) -> boo
 
 func _ready() -> void:
 	set_process(false)
+	_restore_texture_focus_camera_binding()
 	_sync_auto_visible_radius(false)
 	_apply_terrain_performance_preset(false)
 	_update_visual_materials()
@@ -1122,6 +1208,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	_track_runtime_frame_time(delta)
 	if _is_generating:
 		_build_next_chunks()
 	elif _is_recoloring:
@@ -1167,6 +1254,7 @@ func clear_generated_terrain() -> void:
 	cancel_generation()
 	_cancel_recolor()
 	final_terrain_locked = false
+	_clear_runtime_performance_caches()
 	_remove_legacy_v1_nodes()
 	_remove_shader_preview()
 	clear_scatter()
@@ -1297,6 +1385,41 @@ func setup_preview_lighting() -> void:
 	environment.ambient_light_energy = 0.55
 
 
+func setup_texture_focus_camera() -> void:
+	var focus_camera := get_node_or_null(TEXTURE_FOCUS_CAMERA_NAME) as Camera3D
+	if focus_camera == null:
+		focus_camera = Camera3D.new()
+		focus_camera.name = TEXTURE_FOCUS_CAMERA_NAME
+		add_child(focus_camera)
+		_set_scene_owner(focus_camera)
+
+	var camera_height := maxf(maxf(terrain_size * 0.65, height_scale * 1.6), 12.0)
+	var camera_distance := maxf(terrain_size * 0.9, 16.0)
+	focus_camera.global_position = _editor_texture_focus_position if _editor_texture_focus_position.is_finite() else global_position + Vector3(0.0, camera_height, camera_distance)
+	focus_camera.look_at(global_position, Vector3.UP)
+	focus_camera.far = maxf(terrain_size * 4.0, 4000.0)
+	focus_camera.current = false
+
+	texture_focus_mode = TextureFocusMode.TARGET_NODE
+	texture_focus_target_path = get_path_to(focus_camera)
+	_update_material_focus(true)
+	_update_processing_state()
+	_update_visual_materials()
+	notify_property_list_changed()
+
+
+func _restore_texture_focus_camera_binding() -> void:
+	if texture_focus_mode == TextureFocusMode.TARGET_NODE and get_node_or_null(texture_focus_target_path) is Node3D:
+		return
+
+	var focus_camera := get_node_or_null(TEXTURE_FOCUS_CAMERA_NAME) as Camera3D
+	if focus_camera == null:
+		return
+
+	texture_focus_mode = TextureFocusMode.TARGET_NODE
+	texture_focus_target_path = get_path_to(focus_camera)
+
+
 func reveal_all_generated_chunks() -> void:
 	if not _has_generated_chunks():
 		push_warning("No generated terrain chunks were found to reveal.")
@@ -1396,6 +1519,7 @@ func paint_material_mask(world_position: Vector3, radius: float, layer: int, str
 
 
 func clear_painted_material_masks() -> void:
+	_lod_mesh_cache.clear()
 	_ensure_region_data_index()
 	for key in _region_data_by_key.keys():
 		var region: Resource = _region_data_by_key[key]
@@ -1439,12 +1563,15 @@ func _paint_chunk_meshes(chunk: MeshInstance3D, local_position: Vector3, radius:
 		var save_error := ResourceSaver.save(painted_mesh, mesh_path)
 		if save_error != OK:
 			push_warning("Could not save painted terrain mesh %s. Error code: %d" % [mesh_path, save_error])
+		else:
+			_lod_mesh_cache[mesh_path] = painted_mesh
 	if chunk.mesh != null:
 		var current_path := chunk.mesh.resource_path
 		if not current_path.is_empty():
 			var reloaded_mesh := ResourceLoader.load(current_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
 			if reloaded_mesh != null:
 				chunk.mesh = reloaded_mesh
+				_lod_mesh_cache[current_path] = reloaded_mesh
 
 
 func _paint_array_mesh(mesh: ArrayMesh, local_position: Vector3, radius: float, layer: int, strength: float, mode: int) -> ArrayMesh:
@@ -1640,14 +1767,14 @@ func generate_scatter() -> void:
 		push_warning("No generated terrain chunks were found for scatter generation.")
 		return
 	var layer := _get_active_scatter_layer()
-	var source_mesh: Mesh = layer.get_mesh() if layer != null and layer.has_method("get_mesh") else null
-	if source_mesh == null:
-		source_mesh = _create_default_scatter_mesh()
+	var source_mesh := _get_scatter_source_mesh(layer)
 	clear_scatter()
 	var scatter_root := _get_or_create_scatter_root()
 	var cell_size := maxf(scatter_cell_size, 1.0)
 	var half_size := terrain_size * 0.5
 	var cells_per_side := ceili(terrain_size / cell_size)
+	var effective_density := _get_effective_scatter_density()
+	var effective_visibility := _get_effective_scatter_visible_distance()
 	var rng := RandomNumberGenerator.new()
 
 	for cell_z in cells_per_side:
@@ -1657,7 +1784,7 @@ func generate_scatter() -> void:
 			var cell_max_x := minf(cell_min_x + cell_size, half_size)
 			var cell_max_z := minf(cell_min_z + cell_size, half_size)
 			var cell_area := maxf(cell_max_x - cell_min_x, 0.0) * maxf(cell_max_z - cell_min_z, 0.0)
-			var instance_target := clampi(roundi(cell_area * scatter_density), 0, 5000)
+			var instance_target := clampi(roundi(cell_area * effective_density), 0, 5000)
 			if instance_target <= 0:
 				continue
 			rng.seed = hash("%d:%d:%d" % [scatter_seed, cell_x, cell_z])
@@ -1673,9 +1800,10 @@ func generate_scatter() -> void:
 			var instance := MultiMeshInstance3D.new()
 			instance.name = "ScatterCell_%02d_%02d" % [cell_x, cell_z]
 			instance.multimesh = multimesh
+			_set_scatter_bounds_meta(instance, Vector2((cell_min_x + cell_max_x) * 0.5, (cell_min_z + cell_max_z) * 0.5), Vector2(cell_max_x - cell_min_x, cell_max_z - cell_min_z).length() * 0.5)
 			if layer != null and layer.material_override != null:
 				instance.material_override = layer.material_override
-			instance.visibility_range_end = scatter_visible_distance
+			instance.visibility_range_end = effective_visibility
 			scatter_root.add_child(instance)
 			_set_scene_owner(instance)
 
@@ -1695,11 +1823,9 @@ func scatter_brush_stamp(world_position: Vector3, radius: float, strength: float
 	if brush_strength <= 0.0:
 		return
 	var layer := _get_active_scatter_layer()
-	var source_mesh: Mesh = layer.get_mesh() if layer != null and layer.has_method("get_mesh") else null
-	if source_mesh == null:
-		source_mesh = _create_default_scatter_mesh()
+	var source_mesh := _get_scatter_source_mesh(layer)
 	var local_center := to_local(world_position)
-	var instance_target := clampi(roundi(PI * brush_radius * brush_radius * scatter_density * brush_strength), 1, 2000)
+	var instance_target := clampi(roundi(PI * brush_radius * brush_radius * _get_effective_scatter_density() * brush_strength), 1, 2000)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash("%d:%d:%d:%d" % [scatter_seed, roundi(local_center.x * 100.0), roundi(local_center.z * 100.0), _get_or_create_scatter_root().get_child_count()])
 	var transforms := _build_scatter_brush_transforms(rng, local_center, brush_radius, instance_target, layer)
@@ -1717,9 +1843,10 @@ func scatter_brush_stamp(world_position: Vector3, radius: float, strength: float
 	instance.name = "ScatterBrush_%04d" % _get_or_create_scatter_root().get_child_count()
 	instance.multimesh = multimesh
 	instance.set_meta("terrain_scatter_brush_radius", brush_radius)
+	_set_scatter_bounds_meta(instance, Vector2(local_center.x, local_center.z), brush_radius)
 	if layer != null and layer.material_override != null:
 		instance.material_override = layer.material_override
-	instance.visibility_range_end = scatter_visible_distance
+	instance.visibility_range_end = _get_effective_scatter_visible_distance()
 	var scatter_root := _get_or_create_scatter_root()
 	scatter_root.add_child(instance)
 	_set_scene_owner(instance)
@@ -1735,6 +1862,8 @@ func erase_scatter_brush(world_position: Vector3, radius: float) -> void:
 	for child in scatter_root.get_children():
 		var instance := child as MultiMeshInstance3D
 		if instance == null or instance.multimesh == null:
+			continue
+		if not _scatter_bounds_intersects(instance, center_2d, erase_radius):
 			continue
 		var kept_transforms: Array[Transform3D] = []
 		for index in instance.multimesh.instance_count:
@@ -1858,6 +1987,49 @@ func _replace_multimesh_transforms(instance: MultiMeshInstance3D, transforms: Ar
 	for index in transforms.size():
 		multimesh.set_instance_transform(index, transforms[index])
 	instance.multimesh = multimesh
+
+
+func _get_scatter_source_mesh(layer: Resource) -> Mesh:
+	var source_mesh: Mesh = layer.get_mesh() if layer != null and layer.has_method("get_mesh") else null
+	if source_mesh != null:
+		return source_mesh
+	if _scatter_default_mesh == null:
+		_scatter_default_mesh = _create_default_scatter_mesh()
+	return _scatter_default_mesh
+
+
+func _get_effective_scatter_density() -> float:
+	match terrain_performance_preset:
+		TerrainPerformancePreset.QUALITY:
+			return scatter_density
+		TerrainPerformancePreset.PERFORMANCE:
+			return scatter_density * 0.5
+		_:
+			return scatter_density * 0.75
+
+
+func _get_effective_scatter_visible_distance() -> float:
+	match terrain_performance_preset:
+		TerrainPerformancePreset.QUALITY:
+			return scatter_visible_distance
+		TerrainPerformancePreset.PERFORMANCE:
+			return scatter_visible_distance * 0.65
+		_:
+			return scatter_visible_distance * 0.85
+
+
+func _set_scatter_bounds_meta(instance: MultiMeshInstance3D, center: Vector2, radius: float) -> void:
+	instance.set_meta("terrain_scatter_bounds_center", center)
+	instance.set_meta("terrain_scatter_bounds_radius", maxf(radius, 0.0))
+
+
+func _scatter_bounds_intersects(instance: MultiMeshInstance3D, center: Vector2, radius: float) -> bool:
+	var bounds_center := instance.get_meta("terrain_scatter_bounds_center", null)
+	if not (bounds_center is Vector2):
+		return true
+	var bounds_radius := float(instance.get_meta("terrain_scatter_bounds_radius", INF))
+	var bounds_center_2d: Vector2 = bounds_center
+	return bounds_center_2d.distance_to(center) <= radius + bounds_radius
 
 
 func _scatter_basis_from_normal(normal: Vector3, yaw: float) -> Basis:
@@ -2083,6 +2255,7 @@ func _start_generation(mode: int) -> void:
 	_reset_generation_timings(mode)
 	cancel_generation()
 	_cancel_recolor()
+	_clear_runtime_performance_caches()
 	_configure_noise()
 	_remove_legacy_v1_nodes()
 	_remove_shader_preview()
@@ -2630,7 +2803,7 @@ func _sync_auto_visible_radius(apply_culling: bool = true) -> void:
 	if not _visible_radius_auto_managed:
 		return
 
-	var target_radius := terrain_size * 0.75
+	var target_radius := terrain_size * 2.0
 	if is_equal_approx(visible_radius, target_radius):
 		return
 
@@ -2644,18 +2817,32 @@ func _sync_auto_visible_radius(apply_culling: bool = true) -> void:
 func _apply_terrain_performance_preset(apply_updates: bool = true) -> void:
 	match terrain_performance_preset:
 		TerrainPerformancePreset.QUALITY:
+			viewport_quality = ViewportQuality.FULL
+			viewport_lod_enabled = true
 			lod_profile = LodProfile.QUALITY
+			high_view_lod_bias_enabled = true
 			high_view_lod_max_bias = 1
+			far_material_cache_enabled = true
+			far_material_cache_resolution = 768
+			lod_focus_update_distance = 1.0
 		TerrainPerformancePreset.PERFORMANCE:
+			viewport_quality = ViewportQuality.FULL
+			viewport_lod_enabled = true
 			lod_profile = LodProfile.PERFORMANCE
+			high_view_lod_bias_enabled = true
 			high_view_lod_max_bias = 3
-			if texture_bombing_samples > TextureBombingSamples.LIGHT:
-				texture_bombing_samples = TextureBombingSamples.LIGHT
+			far_material_cache_enabled = true
+			far_material_cache_resolution = 256
+			lod_focus_update_distance = maxf(terrain_size / float(maxi(1, chunks_per_side)) * 0.20, 2.0)
 		_:
+			viewport_quality = ViewportQuality.FULL
+			viewport_lod_enabled = true
 			lod_profile = LodProfile.BALANCED
+			high_view_lod_bias_enabled = true
 			high_view_lod_max_bias = 2
-			if texture_bombing_samples > TextureBombingSamples.LIGHT:
-				texture_bombing_samples = TextureBombingSamples.LIGHT
+			far_material_cache_enabled = true
+			far_material_cache_resolution = 512
+			lod_focus_update_distance = maxf(terrain_size / float(maxi(1, chunks_per_side)) * 0.10, 1.0)
 
 	high_view_lod_start_height = maxf(high_view_lod_start_height, terrain_size * 0.14)
 	high_view_lod_full_height = maxf(high_view_lod_full_height, terrain_size * 0.38)
@@ -2665,6 +2852,10 @@ func _apply_terrain_performance_preset(apply_updates: bool = true) -> void:
 	_apply_terrain_shadow_policy()
 	_update_visual_materials()
 	_apply_viewport_culling()
+
+
+func _get_texture_bombing_sample_count() -> int:
+	return TextureBombingSamples.QUALITY if texture_bombing_enabled else TextureBombingSamples.OFF
 
 
 func _terrain_should_cast_shadows() -> bool:
@@ -2764,11 +2955,10 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 		if mesh_error != OK:
 			return mesh_error
 
+		var saved_mesh := _cache_saved_lod_mesh(mesh_path, lod_mesh)
 		chunk.set_meta(_get_lod_meta_key(lod_index), mesh_path)
-		if lod_index == 0:
-			var saved_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
-			if saved_mesh != null:
-				chunk.mesh = saved_mesh
+		if lod_index == 0 and saved_mesh != null:
+			chunk.mesh = saved_mesh
 
 	chunk.set_meta("terrain_chunk_x", chunk_x)
 	chunk.set_meta("terrain_chunk_z", chunk_z)
@@ -2794,11 +2984,10 @@ func _save_chunk_lod_resources_from_arrays(chunk: MeshInstance3D, chunk_x: int, 
 		if mesh_error != OK:
 			return mesh_error
 
+		var saved_mesh := _cache_saved_lod_mesh(mesh_path, lod_mesh)
 		chunk.set_meta(_get_lod_meta_key(lod_index), mesh_path)
-		if lod_index == 0:
-			var saved_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
-			if saved_mesh != null:
-				chunk.mesh = saved_mesh
+		if lod_index == 0 and saved_mesh != null:
+			chunk.mesh = saved_mesh
 
 	chunk.set_meta("terrain_chunk_x", chunk_x)
 	chunk.set_meta("terrain_chunk_z", chunk_z)
@@ -2889,6 +3078,8 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.snow_material_folder = snow_material_folder
 	preset.texture_tile_scale = texture_tile_scale
 	preset.macro_texture_tiling_enabled = macro_texture_tiling_enabled
+	preset.texture_focus_mode = texture_focus_mode
+	preset.texture_focus_target_path = texture_focus_target_path
 	preset.close_texture_tile_scale = close_texture_tile_scale
 	preset.medium_texture_tile_scale = medium_texture_tile_scale
 	preset.far_texture_tile_scale = far_texture_tile_scale
@@ -2902,7 +3093,7 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.texture_bombing_enabled = texture_bombing_enabled
 	preset.texture_bombing_strength = texture_bombing_strength
 	preset.texture_bombing_cell_scale = texture_bombing_cell_scale
-	preset.texture_bombing_samples = texture_bombing_samples
+	preset.texture_bombing_samples = _get_texture_bombing_sample_count()
 	preset.terrain_performance_preset = terrain_performance_preset
 	preset.high_view_lod_bias_enabled = high_view_lod_bias_enabled
 	preset.high_view_lod_start_height = high_view_lod_start_height
@@ -3160,6 +3351,12 @@ func _apply_visual_preset_settings(preset: Resource) -> void:
 	var loaded_macro_texture_tiling_enabled = preset.get("macro_texture_tiling_enabled")
 	if loaded_macro_texture_tiling_enabled != null:
 		macro_texture_tiling_enabled = bool(loaded_macro_texture_tiling_enabled)
+	var loaded_texture_focus_mode = preset.get("texture_focus_mode")
+	if loaded_texture_focus_mode != null:
+		texture_focus_mode = int(loaded_texture_focus_mode)
+	var loaded_texture_focus_target_path = preset.get("texture_focus_target_path")
+	if loaded_texture_focus_target_path != null:
+		texture_focus_target_path = NodePath(str(loaded_texture_focus_target_path))
 	var loaded_close_texture_tile_scale = preset.get("close_texture_tile_scale")
 	if loaded_close_texture_tile_scale != null:
 		close_texture_tile_scale = float(loaded_close_texture_tile_scale)
@@ -3202,6 +3399,7 @@ func _apply_visual_preset_settings(preset: Resource) -> void:
 	var loaded_texture_bombing_samples = preset.get("texture_bombing_samples")
 	if loaded_texture_bombing_samples != null:
 		texture_bombing_samples = int(loaded_texture_bombing_samples)
+	texture_bombing_samples = _get_texture_bombing_sample_count()
 	var loaded_terrain_performance_preset = preset.get("terrain_performance_preset")
 	if loaded_terrain_performance_preset != null:
 		terrain_performance_preset = int(loaded_terrain_performance_preset)
@@ -3406,7 +3604,7 @@ func _should_process_automatic_lod_focus() -> bool:
 
 
 func _should_process_material_focus() -> bool:
-	return macro_texture_tiling_enabled and material_mode == TerrainMaterialMode.TEXTURE_LAYERS and _has_generated_chunks() and _has_automatic_lod_focus_source()
+	return macro_texture_tiling_enabled and material_mode == TerrainMaterialMode.TEXTURE_LAYERS and _has_generated_chunks() and texture_focus_mode != TextureFocusMode.TERRAIN_CENTER
 
 
 func _update_material_focus(force: bool = false) -> void:
@@ -3425,23 +3623,41 @@ func _update_material_focus(force: bool = false) -> void:
 
 
 func _get_material_focus() -> Vector3:
+	if Engine.is_editor_hint() and _editor_texture_focus_position.is_finite():
+		return _editor_texture_focus_position
+
+	match texture_focus_mode:
+		TextureFocusMode.TARGET_NODE:
+			var texture_target := get_node_or_null(texture_focus_target_path) as Node3D
+			if texture_target != null:
+				return texture_target.global_position
+			var active_camera_focus := _get_active_camera_material_focus()
+			if active_camera_focus.is_finite():
+				return active_camera_focus
+		TextureFocusMode.ACTIVE_CAMERA:
+			var active_camera_focus := _get_active_camera_material_focus()
+			if active_camera_focus.is_finite():
+				return active_camera_focus
+		_:
+			return _get_default_material_focus()
+
+	return _get_default_material_focus()
+
+
+func _get_active_camera_material_focus() -> Vector3:
 	var editor_camera_position := _get_editor_viewport_camera_position()
 	if editor_camera_position.is_finite():
 		return editor_camera_position
-
-	var target := get_node_or_null(lod_target_path) as Node3D
-	if target != null:
-		return target.global_position
 
 	var camera := get_viewport().get_camera_3d() if get_viewport() != null else null
 	if camera != null:
 		return camera.global_position
 
-	var focus_2d := _get_automatic_lod_focus()
-	if focus_2d.is_finite():
-		return Vector3(focus_2d.x, 0.0, focus_2d.y)
-
 	return Vector3.INF
+
+
+func _get_default_material_focus() -> Vector3:
+	return global_position if is_inside_tree() else position
 
 
 func _update_automatic_lod_focus(force: bool = false) -> void:
@@ -3540,6 +3756,7 @@ func _apply_viewport_culling() -> void:
 		if chunk.visible:
 			_apply_lod_to_chunk(chunk)
 	_update_lod_statistics()
+	_last_visible_chunk_count = visible_lod0_chunks + visible_lod1_chunks + visible_lod2_chunks + visible_lod3_chunks
 	_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
 
 
@@ -3566,6 +3783,30 @@ func _count_visible_generated_chunks() -> int:
 	return count
 
 
+func _count_collision_chunks() -> int:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return 0
+	var count := 0
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and chunk.get_node_or_null("CollisionBody/CollisionShape") is CollisionShape3D:
+			count += 1
+	return count
+
+
+func _count_scatter_instances() -> int:
+	var scatter_root := get_node_or_null(TERRAIN_SCATTER_NAME)
+	if scatter_root == null:
+		return 0
+	var count := 0
+	for child in scatter_root.get_children():
+		var instance := child as MultiMeshInstance3D
+		if instance != null and instance.multimesh != null:
+			count += instance.multimesh.instance_count
+	return count
+
+
 func _apply_lod_to_chunk(chunk: MeshInstance3D) -> void:
 	if not viewport_lod_enabled and final_terrain_locked:
 		_set_chunk_lod(chunk, _get_viewport_quality_lod_index())
@@ -3573,8 +3814,31 @@ func _apply_lod_to_chunk(chunk: MeshInstance3D) -> void:
 	if not viewport_lod_enabled:
 		return
 
-	var lod_index := _get_distance_lod_index(chunk)
+	var lod_index := _get_stable_distance_lod_index(chunk)
 	_set_chunk_lod(chunk, lod_index)
+
+
+func _get_stable_distance_lod_index(chunk: MeshInstance3D) -> int:
+	var raw_lod_index := _get_distance_lod_index(chunk)
+	var current_lod_index := int(chunk.get_meta("terrain_current_lod", raw_lod_index))
+	if current_lod_index == raw_lod_index:
+		return raw_lod_index
+
+	var cap_index := _get_viewport_quality_lod_index()
+	var high_view_bias := _get_high_view_lod_bias()
+	var current_offset := clampi(current_lod_index - cap_index - high_view_bias, 0, 3)
+	var raw_offset := clampi(raw_lod_index - cap_index - high_view_bias, 0, 3)
+	var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
+	var distance_ratio := chunk_center.distance_to(culling_center) / maxf(visible_radius, 0.001)
+
+	if raw_lod_index > current_lod_index:
+		if distance_ratio < _get_lod_offset_enter_ratio(raw_offset) + LOD_HYSTERESIS_RATIO:
+			return current_lod_index
+	elif raw_lod_index < current_lod_index:
+		if distance_ratio > _get_lod_offset_enter_ratio(current_offset) - LOD_HYSTERESIS_RATIO:
+			return current_lod_index
+
+	return raw_lod_index
 
 
 func _get_distance_lod_index(chunk: MeshInstance3D) -> int:
@@ -3607,6 +3871,38 @@ func _get_distance_lod_index(chunk: MeshInstance3D) -> int:
 
 	lod_offset += _get_high_view_lod_bias()
 	return clampi(cap_index + lod_offset, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+
+
+func _get_lod_offset_enter_ratio(lod_offset: int) -> float:
+	match lod_profile:
+		LodProfile.QUALITY:
+			match lod_offset:
+				0:
+					return 0.0
+				1:
+					return 0.45
+				_:
+					return 0.75
+		LodProfile.PERFORMANCE:
+			match lod_offset:
+				0:
+					return 0.0
+				1:
+					return 0.05
+				2:
+					return 0.15
+				_:
+					return 0.35
+		_:
+			match lod_offset:
+				0:
+					return 0.0
+				1:
+					return 0.10
+				2:
+					return 0.25
+				_:
+					return 0.45
 
 
 func _get_high_view_lod_bias() -> int:
@@ -3691,20 +3987,43 @@ func _set_chunk_lod(chunk: MeshInstance3D, lod_index: int) -> void:
 	if mesh_path.is_empty():
 		return
 
-	var lod_mesh := load(mesh_path) as ArrayMesh
+	var lod_mesh := _get_cached_lod_mesh(mesh_path)
 	if lod_mesh == null:
 		return
 	if lod_index > 0 and int(lod_mesh.get_meta("terrain_lod_edge_version", 0)) < TERRAIN_LOD_EDGE_VERSION:
 		lod_mesh = _rebuild_chunk_lod_mesh(chunk, lod_index, mesh_path)
 		if lod_mesh == null:
 			return
+		_lod_mesh_cache[mesh_path] = lod_mesh
 	if _chunk_uses_v5_masks(chunk) and _mesh_needs_paint_weight_reset(lod_mesh):
 		lod_mesh = _reset_array_mesh_masks(lod_mesh)
 		if not mesh_path.is_empty():
 			ResourceSaver.save(lod_mesh, mesh_path)
+			_lod_mesh_cache[mesh_path] = lod_mesh
 
 	chunk.mesh = lod_mesh
 	chunk.set_meta("terrain_current_lod", lod_index)
+	_performance_lod_swap_count += 1
+
+
+func _get_cached_lod_mesh(mesh_path: String) -> ArrayMesh:
+	if mesh_path.is_empty():
+		return null
+	var cached_mesh := _lod_mesh_cache.get(mesh_path, null) as ArrayMesh
+	if cached_mesh != null:
+		return cached_mesh
+	var loaded_mesh := ResourceLoader.load(mesh_path, "ArrayMesh") as ArrayMesh
+	if loaded_mesh != null:
+		_lod_mesh_cache[mesh_path] = loaded_mesh
+	return loaded_mesh
+
+
+func _cache_saved_lod_mesh(mesh_path: String, fallback_mesh: ArrayMesh) -> ArrayMesh:
+	var saved_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+	var cached_mesh := saved_mesh if saved_mesh != null else fallback_mesh
+	if cached_mesh != null:
+		_lod_mesh_cache[mesh_path] = cached_mesh
+	return cached_mesh
 
 
 func _chunk_lod_mesh_needs_rebuild(chunk: MeshInstance3D, lod_index: int) -> bool:
@@ -3724,7 +4043,9 @@ func _rebuild_chunk_lod_mesh(chunk: MeshInstance3D, lod_index: int, mesh_path: S
 	var rebuilt_mesh := _build_chunk_mesh(coordinates.x, coordinates.y, stride, stride > 1)
 	rebuilt_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
 	if not mesh_path.is_empty():
-		ResourceSaver.save(rebuilt_mesh, mesh_path)
+		var save_error := ResourceSaver.save(rebuilt_mesh, mesh_path)
+		if save_error == OK:
+			return _cache_saved_lod_mesh(mesh_path, rebuilt_mesh)
 	return rebuilt_mesh
 
 
@@ -3842,7 +4163,7 @@ func _chunk_has_current_collision(chunk: MeshInstance3D) -> bool:
 
 func _refresh_collision_for_focus_if_needed() -> void:
 	if collision_coverage == CollisionCoverage.DYNAMIC_NEAR_FOCUS:
-		_refresh_dynamic_collision(true)
+		_refresh_dynamic_collision(false)
 		return
 	if collision_coverage != CollisionCoverage.NEAR_CENTER:
 		return
@@ -4091,11 +4412,11 @@ func _add_collision_from_existing_mesh(chunk_mesh_instance: MeshInstance3D) -> v
 	if chunk_mesh_instance.mesh == null:
 		return
 
-	_remove_collision_from_chunk(chunk_mesh_instance)
-	var collision_mesh := _get_collision_mesh_for_chunk(chunk_mesh_instance)
-	if collision_mesh == null:
+	var collision_shape_resource := _get_collision_shape_for_chunk(chunk_mesh_instance)
+	if collision_shape_resource == null:
 		return
 
+	_remove_collision_from_chunk(chunk_mesh_instance)
 	var body := StaticBody3D.new()
 	body.name = "CollisionBody"
 	body.visible = collision_visuals_visible
@@ -4105,7 +4426,7 @@ func _add_collision_from_existing_mesh(chunk_mesh_instance: MeshInstance3D) -> v
 	var collision_shape := CollisionShape3D.new()
 	collision_shape.name = "CollisionShape"
 	collision_shape.visible = collision_visuals_visible
-	collision_shape.shape = _create_terrain_collision_shape(collision_mesh)
+	collision_shape.shape = collision_shape_resource
 	collision_shape.set_meta("terrain_collision_quality", clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
@@ -4158,13 +4479,35 @@ func _get_collision_mesh_for_chunk(chunk: MeshInstance3D) -> ArrayMesh:
 	var lod_index := clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
 	if not mesh_path.is_empty():
-		var saved_lod_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+		var saved_lod_mesh := _get_cached_lod_mesh(mesh_path)
 		if saved_lod_mesh != null:
 			return saved_lod_mesh
 
 	var coordinates := _get_chunk_coordinates(chunk)
 	var collision_stride: int = LOD_STRIDES[lod_index]
 	return _build_chunk_mesh(coordinates.x, coordinates.y, collision_stride, collision_stride > 1)
+
+
+func _get_collision_shape_for_chunk(chunk: MeshInstance3D) -> Shape3D:
+	var cache_key := _get_collision_shape_cache_key(chunk)
+	var cached_shape := _collision_shape_cache.get(cache_key, null) as Shape3D
+	if cached_shape != null:
+		return cached_shape
+	var collision_mesh := _get_collision_mesh_for_chunk(chunk)
+	if collision_mesh == null:
+		return null
+	var collision_shape := _create_terrain_collision_shape(collision_mesh)
+	_collision_shape_cache[cache_key] = collision_shape
+	return collision_shape
+
+
+func _get_collision_shape_cache_key(chunk: MeshInstance3D) -> String:
+	var lod_index := clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+	if not mesh_path.is_empty():
+		return "%s@%d" % [mesh_path, lod_index]
+	var coordinates := _get_chunk_coordinates(chunk)
+	return "%s:%d:%d:%d:%d" % [chunk.name, coordinates.x, coordinates.y, lod_index, TERRAIN_LOD_EDGE_VERSION]
 
 
 func _remove_collision_from_chunk(chunk: Node) -> void:
@@ -4210,7 +4553,7 @@ func _configure_material_manager() -> void:
 		"generated_resource_directory": _get_generated_resource_directory(),
 		"seed": terrain_seed,
 		"material_mode": material_mode,
-		"texture_focus_position": _last_material_focus if _last_material_focus.is_finite() else Vector3(culling_center.x, 0.0, culling_center.y),
+		"texture_focus_position": _last_material_focus if _last_material_focus.is_finite() else _get_default_material_focus(),
 		"height_scale": height_scale,
 		"snow_height": snow_height,
 		"snow_enabled": snow_enabled,
@@ -4246,7 +4589,7 @@ func _configure_material_manager() -> void:
 		"texture_bombing_enabled": texture_bombing_enabled,
 		"texture_bombing_strength": texture_bombing_strength,
 		"texture_bombing_cell_scale": texture_bombing_cell_scale,
-		"texture_bombing_samples": texture_bombing_samples,
+		"texture_bombing_samples": _get_texture_bombing_sample_count(),
 		"material_performance_preset": terrain_performance_preset,
 		"far_material_cache_enabled": far_material_cache_enabled,
 		"far_material_cache_resolution": far_material_cache_resolution,

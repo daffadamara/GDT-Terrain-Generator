@@ -5,8 +5,8 @@ class_name TerrainPreset
 @export_group("Terrain Shape")
 @export var terrain_size := 64.0
 @export var chunk_resolution := 256
-@export var chunks_per_side := 1
-@export var height_scale := 5.0
+@export var chunks_per_side := 4
+@export var height_scale := 2.0
 
 @export_group("Terrain Source")
 @export var source_mode := 0
@@ -47,9 +47,9 @@ class_name TerrainPreset
 @export_group("Visual Material")
 @export var procedural_material_enabled := true
 @export var material_mode := 1
-@export var lowland_layer_enabled := true
+@export var lowland_layer_enabled := false
 @export var ground_layer_enabled := true
-@export var upper_layer_enabled := true
+@export var upper_layer_enabled := false
 @export var rocky_layer_enabled := true
 @export var cliff_layer_enabled := true
 @export var snow_layer_enabled := true
@@ -61,12 +61,14 @@ class_name TerrainPreset
 @export var snow_material_folder := "res://material/snow"
 @export var texture_tile_scale := 0.18
 @export var macro_texture_tiling_enabled := true
-@export var close_texture_tile_scale := 0.30
-@export var medium_texture_tile_scale := 0.18
-@export var far_texture_tile_scale := 0.075
-@export var close_texture_radius := 32.0
-@export var medium_texture_radius := 96.0
-@export var far_texture_radius := 192.0
+@export var texture_focus_mode := 2
+@export var texture_focus_target_path := NodePath()
+@export var close_texture_tile_scale := 0.20
+@export var medium_texture_tile_scale := 0.03
+@export var far_texture_tile_scale := 0.01
+@export var close_texture_radius := 24.0
+@export var medium_texture_radius := 48.0
+@export var far_texture_radius := 92.0
 @export var layer_blend_softness := 0.18
 @export var texture_normal_strength := 0.75
 @export var roughness_multiplier := 1.0
@@ -74,13 +76,13 @@ class_name TerrainPreset
 @export var texture_bombing_enabled := true
 @export var texture_bombing_strength := 0.55
 @export var texture_bombing_cell_scale := 0.65
-@export var texture_bombing_samples := 1
-@export var terrain_performance_preset := 1
+@export var texture_bombing_samples := 2
+@export var terrain_performance_preset := 2
 @export var high_view_lod_bias_enabled := true
 @export var high_view_lod_start_height := 36.0
 @export var high_view_lod_full_height := 96.0
 @export var high_view_lod_max_bias := 2
-@export var terrain_shadow_casting := 2
+@export var terrain_shadow_casting := 1
 @export var far_material_cache_enabled := true
 @export var far_material_cache_resolution := 512
 @export var macro_variation_strength := 0.18
@@ -89,8 +91,8 @@ class_name TerrainPreset
 @export var detail_noise_scale := 0.45
 @export var rock_detail_strength := 0.25
 @export var snow_detail_strength := 0.08
-@export var material_brightness := 1.32
-@export var material_contrast := 1.0
+@export var material_brightness := 1.2
+@export var material_contrast := 1.05
 
 @export_group("Viewport")
 @export var bake_preset := 1
@@ -98,7 +100,7 @@ class_name TerrainPreset
 @export var viewport_lod_enabled := true
 @export var lod_profile := 1
 @export var automatic_lod_focus := true
-@export var visible_radius := 48.0
+@export var visible_radius := 128.0
 @export var viewport_culling_enabled := true
 
 @export_group("Collision")
