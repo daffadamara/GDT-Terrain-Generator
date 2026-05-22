@@ -8,7 +8,7 @@ var active_chunk_resolution := 64
 var active_total_resolution := 64
 var active_step := 1.0
 var active_half_size := 32.0
-var height_scale := 5.0
+var height_scale := 2.0
 var terrain_scale := 1.0
 var snow_enabled := true
 var snow_height := 5.0
@@ -18,6 +18,7 @@ var grass_color := Color(0.24, 0.33, 0.15)
 var rock_color := Color(0.27, 0.24, 0.18)
 var snow_color := Color(0.86, 0.84, 0.76)
 var use_v5_masks := true
+const TERRAIN_PAINT_ENCODING_WEIGHTS_V1 := "paint_weights_v1"
 
 
 func configure(settings: Dictionary) -> void:
@@ -46,6 +47,8 @@ func build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirt
 func create_mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if use_v5_masks:
+		mesh.set_meta("terrain_paint_encoding", TERRAIN_PAINT_ENCODING_WEIGHTS_V1)
 	return mesh
 
 
@@ -70,10 +73,12 @@ func build_chunk_mesh_arrays(chunk_x: int, chunk_z: int, display_stride: int, ad
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
 	var colors := PackedColorArray()
 	vertices.resize(vertex_total)
 	normals.resize(vertex_total)
 	uvs.resize(vertex_total)
+	uv2s.resize(vertex_total)
 	colors.resize(vertex_total)
 
 	for display_z in vertices_per_side:
@@ -91,7 +96,8 @@ func build_chunk_mesh_arrays(chunk_x: int, chunk_z: int, display_stride: int, ad
 			vertices[vertex_index] = Vector3(world_x, height, world_z)
 			normals[vertex_index] = normal
 			uvs[vertex_index] = Vector2(float(global_x) / float(active_total_resolution), float(global_z) / float(active_total_resolution))
-			colors[vertex_index] = mask_for_terrain(height, normal) if use_v5_masks else color_for_terrain(height, normal)
+			uv2s[vertex_index] = Vector2.ZERO
+			colors[vertex_index] = Color(0.0, 0.0, 0.0, 0.0) if use_v5_masks else color_for_terrain(height, normal)
 
 	var indices := PackedInt32Array()
 	var display_quads_per_side := vertices_per_side - 1
@@ -113,13 +119,15 @@ func build_chunk_mesh_arrays(chunk_x: int, chunk_z: int, display_stride: int, ad
 	if add_skirts:
 		if index_write_position < indices.size():
 			indices.resize(index_write_position)
-		_append_lod_edge_stitching(vertices, normals, uvs, colors, indices, chunk_x, chunk_z, display_stride)
+		_append_lod_edge_stitching(vertices, normals, uvs, uv2s, colors, indices, chunk_x, chunk_z, display_stride)
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	if use_v5_masks:
+		arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 
@@ -228,6 +236,7 @@ func _append_lod_edge_stitching(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs: PackedVector2Array,
+	uv2s: PackedVector2Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
 	chunk_x: int,
@@ -247,6 +256,7 @@ func _append_lod_edge_stitching(
 			vertices,
 			normals,
 			uvs,
+			uv2s,
 			colors,
 			indices,
 			Vector2i(x, start_grid_z),
@@ -261,6 +271,7 @@ func _append_lod_edge_stitching(
 			vertices,
 			normals,
 			uvs,
+			uv2s,
 			colors,
 			indices,
 			Vector2i(x, end_grid_z - stride),
@@ -277,6 +288,7 @@ func _append_lod_edge_stitching(
 			vertices,
 			normals,
 			uvs,
+			uv2s,
 			colors,
 			indices,
 			Vector2i(start_grid_x, z),
@@ -291,6 +303,7 @@ func _append_lod_edge_stitching(
 			vertices,
 			normals,
 			uvs,
+			uv2s,
 			colors,
 			indices,
 			Vector2i(end_grid_x - stride, z),
@@ -307,6 +320,7 @@ func _append_lod_stitch_segment_horizontal(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs: PackedVector2Array,
+	uv2s: PackedVector2Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
 	top_left_grid: Vector2i,
@@ -333,10 +347,10 @@ func _append_lod_stitch_segment_horizontal(
 		var top_b := _terrain_vertex_from_grid(roundi(top_b_grid.x), roundi(top_b_grid.y)) if top_is_detailed_edge else top_left.lerp(top_right, end_t)
 		var bottom_a := _terrain_vertex_from_grid(roundi(bottom_a_grid.x), roundi(bottom_a_grid.y)) if bottom_is_detailed_edge else bottom_left.lerp(bottom_right, start_t)
 		var bottom_b := _terrain_vertex_from_grid(roundi(bottom_b_grid.x), roundi(bottom_b_grid.y)) if bottom_is_detailed_edge else bottom_left.lerp(bottom_right, end_t)
-		var top_a_index := _append_surface_vertex(vertices, normals, uvs, colors, top_a, top_a_grid)
-		var top_b_index := _append_surface_vertex(vertices, normals, uvs, colors, top_b, top_b_grid)
-		var bottom_a_index := _append_surface_vertex(vertices, normals, uvs, colors, bottom_a, bottom_a_grid)
-		var bottom_b_index := _append_surface_vertex(vertices, normals, uvs, colors, bottom_b, bottom_b_grid)
+		var top_a_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, top_a, top_a_grid)
+		var top_b_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, top_b, top_b_grid)
+		var bottom_a_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, bottom_a, bottom_a_grid)
+		var bottom_b_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, bottom_b, bottom_b_grid)
 
 		indices.append(top_a_index)
 		indices.append(top_b_index)
@@ -350,6 +364,7 @@ func _append_lod_stitch_segment_vertical(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs: PackedVector2Array,
+	uv2s: PackedVector2Array,
 	colors: PackedColorArray,
 	indices: PackedInt32Array,
 	top_left_grid: Vector2i,
@@ -376,10 +391,10 @@ func _append_lod_stitch_segment_vertical(
 		var left_b := _terrain_vertex_from_grid(roundi(left_b_grid.x), roundi(left_b_grid.y)) if left_is_detailed_edge else top_left.lerp(bottom_left, end_t)
 		var right_a := _terrain_vertex_from_grid(roundi(right_a_grid.x), roundi(right_a_grid.y)) if right_is_detailed_edge else top_right.lerp(bottom_right, start_t)
 		var right_b := _terrain_vertex_from_grid(roundi(right_b_grid.x), roundi(right_b_grid.y)) if right_is_detailed_edge else top_right.lerp(bottom_right, end_t)
-		var left_a_index := _append_surface_vertex(vertices, normals, uvs, colors, left_a, left_a_grid)
-		var right_a_index := _append_surface_vertex(vertices, normals, uvs, colors, right_a, right_a_grid)
-		var left_b_index := _append_surface_vertex(vertices, normals, uvs, colors, left_b, left_b_grid)
-		var right_b_index := _append_surface_vertex(vertices, normals, uvs, colors, right_b, right_b_grid)
+		var left_a_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, left_a, left_a_grid)
+		var right_a_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, right_a, right_a_grid)
+		var left_b_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, left_b, left_b_grid)
+		var right_b_index := _append_surface_vertex(vertices, normals, uvs, uv2s, colors, right_b, right_b_grid)
 
 		indices.append(left_a_index)
 		indices.append(right_a_index)
@@ -393,6 +408,7 @@ func _append_surface_vertex(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
 	uvs: PackedVector2Array,
+	uv2s: PackedVector2Array,
 	colors: PackedColorArray,
 	vertex: Vector3,
 	grid_position: Vector2
@@ -402,7 +418,11 @@ func _append_surface_vertex(
 	vertices.append(vertex)
 	normals.append(normal)
 	uvs.append(Vector2(grid_position.x / float(active_total_resolution), grid_position.y / float(active_total_resolution)))
-	colors.append(mask_for_terrain(vertex.y, normal) if use_v5_masks else color_for_terrain(vertex.y, normal))
+	if use_v5_masks:
+		uv2s.append(Vector2.ZERO)
+		colors.append(Color(0.0, 0.0, 0.0, 0.0))
+	else:
+		colors.append(color_for_terrain(vertex.y, normal))
 	return vertex_index
 
 
