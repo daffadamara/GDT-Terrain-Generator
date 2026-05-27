@@ -24,8 +24,10 @@ enum CollisionCoverage { NEAR_CENTER, VISIBLE_CHUNKS, ALL_CHUNKS, DYNAMIC_NEAR_F
 enum HeightmapFormat { PNG, EXR, R16 }
 enum PaintLayer { LOWLAND, GROUND, UPPER, ROCKY, CLIFF, SNOW }
 enum PaintMode { ADD, SUBTRACT, SMOOTH }
-enum EditorBrushMode { MATERIAL_PAINT, SCATTER_ADD, SCATTER_ERASE }
-enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS, REBUILD_REGION_DATA, CLEAR_PAINTED_MASKS, GENERATE_SCATTER, CLEAR_SCATTER }
+enum SculptMode { RAISE, LOWER, SMOOTH, HEIGHT, SLOPE }
+enum SculptBrushMask { SOFT_CIRCLE, HARD_CIRCLE, NOISE, RIDGE, CUSTOM }
+enum EditorBrushMode { MATERIAL_PAINT, SCATTER_ADD, SCATTER_ERASE, SCULPT_RAISE, SCULPT_LOWER, SCULPT_SMOOTH, SCULPT_HEIGHT, SCULPT_SLOPE }
+enum UtilityAction { SAVE_MESH_RESOURCES, SETUP_PREVIEW_LIGHTING, GENERATE_COLLISION, REMOVE_COLLISION, REVEAL_ALL_CHUNKS, REBUILD_REGION_DATA, CLEAR_PAINTED_MASKS, GENERATE_SCATTER, CLEAR_SCATTER, CLEAR_SCULPTED_HEIGHTS, EXPORT_SCULPTED_HEIGHTMAP, REBUILD_SCULPTED_CHUNKS }
 enum GenerationPhase { IDLE, BUILDING_MESH_ARRAYS, FINALIZING_CHUNKS, SAVING_LODS, GENERATING_COLLISION, SAVING_RESOURCES }
 enum TextureFocusMode { TERRAIN_CENTER, TARGET_NODE, ACTIVE_CAMERA }
 
@@ -35,14 +37,18 @@ const SHADER_PREVIEW_NAME := "ShaderPreviewTerrain"
 const PREVIEW_LIGHT_NAME := "TerrainPreviewLight"
 const PREVIEW_ENVIRONMENT_NAME := "TerrainPreviewEnvironment"
 const TEXTURE_FOCUS_CAMERA_NAME := "TextureFocusCamera"
+const NAVIGATION_REGION_NAME := "TerrainNavigationRegion"
+const TERRAIN_OCCLUDER_NAME := "TerrainOccluder"
 const LEGACY_TERRAIN_MESH_NAME := "TerrainMesh"
 const LEGACY_TERRAIN_BODY_NAME := "TerrainBody"
 const DEFAULT_GENERATED_RESOURCE_DIR := "res://generated_terrain"
 const LOD_STRIDES := [1, 2, 4, 8]
-const TERRAIN_LOD_EDGE_VERSION := 3
+const TERRAIN_LOD_EDGE_VERSION := 11
 const TERRAIN_ENCODING_V5_MASKS := "v5_masks"
 const TERRAIN_ENCODING_LEGACY_COLORS := "legacy_colors"
 const TERRAIN_PAINT_ENCODING_WEIGHTS_V1 := "paint_weights_v1"
+const PAINT_LAYER_NAMES := ["Lowland", "Ground", "Upper", "Rocky", "Cliff", "Snow"]
+const SCULPT_MASK_NAMES := ["Soft Circle", "Hard Circle", "Noise", "Ridge", "Custom"]
 const PERFORMANCE_FRAME_SPIKE_MSEC := 33.0
 const LOD_HYSTERESIS_RATIO := 0.035
 
@@ -78,6 +84,15 @@ float soft_band(float edge0, float edge1, float value) {
 	return x * x * (3.0 - 2.0 * x);
 }
 
+float snow_surface_amount(float terrain_height_value, float terrain_slope_value) {
+	float snow_blend_width = max(height_scale * 0.12, 0.35);
+	float height_snow = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height_value) : 0.0;
+	float slope_start = max(0.30, rock_slope_threshold * 0.75);
+	float slope_end = min(0.82, rock_slope_threshold + 0.25);
+	float stable_surface = 1.0 - soft_band(slope_start, slope_end, terrain_slope_value);
+	return height_snow * stable_surface;
+}
+
 float sample_height(vec2 uv) {
 	float height_amount = texture(height_texture, clamp(uv, vec2(0.0), vec2(1.0))).r;
 	return mix(height_min, height_max, height_amount);
@@ -110,8 +125,7 @@ void fragment() {
 	vec3 color = mix(lowland_color.rgb, grass_color.rgb, soft_band(0.20, 0.78, normalized_height));
 
 	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), terrain_slope);
-	float snow_blend_width = max(height_scale * 0.12, 0.35);
-	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
+	float snow_amount = snow_surface_amount(terrain_height, terrain_slope);
 	color = mix(color, rock_color.rgb, rock_amount);
 	color = mix(color, snow_color.rgb, snow_amount);
 
@@ -764,12 +778,16 @@ var lod_focus_update_distance: float = 1.0:
 		viewport_culling_enabled = value
 		_apply_viewport_culling()
 
-## Chunk centers farther than this distance from Culling Center are hidden. Auto-scales with Terrain Size.
+## Chunks whose 2D bounds are farther than this distance from Culling Center are hidden. Auto-scales with Terrain Size.
 @export_range(0.0, 4096.0, 0.1) var visible_radius: float = 128.0:
 	set(value):
-		visible_radius = maxf(0.0, value)
+		var new_visible_radius := maxf(0.0, value)
+		var radius_changed := not is_equal_approx(visible_radius, new_visible_radius)
+		visible_radius = new_visible_radius
 		if not _setting_auto_visible_radius:
 			_visible_radius_auto_managed = false
+		if radius_changed:
+			_invalidate_chunk_lod_state()
 		_apply_viewport_culling()
 
 ## World X/Z point used as the center of viewport culling.
@@ -866,10 +884,33 @@ var collision_visuals_visible: bool = false:
 @export var editor_brush_enabled: bool = false
 
 ## Brush operation used by the 3D viewport tool.
-@export_enum("Material Paint", "Scatter Add", "Scatter Erase") var editor_brush_mode: int = EditorBrushMode.MATERIAL_PAINT
+@export_enum("Material Paint", "Scatter Add", "Scatter Erase", "Sculpt Raise", "Sculpt Lower", "Sculpt Smooth", "Sculpt Height", "Sculpt Slope") var editor_brush_mode: int = EditorBrushMode.MATERIAL_PAINT
 
 ## Minimum movement, as a fraction of brush radius, between repeated drag stamps.
 @export_range(0.01, 1.0, 0.01) var editor_brush_spacing: float = 0.16
+
+@export_group("Sculpt Brush")
+
+## Enables callable height sculpting. Sculpting stores non-destructive height deltas in region data.
+@export var sculpt_enabled: bool = true
+
+## Radius in world units used by sculpting calls.
+@export_range(0.01, 256.0, 0.01) var sculpt_radius: float = 4.0
+
+## Height strength applied by sculpting calls, in world units per full-strength stamp.
+@export_range(0.0, 8.0, 0.01) var sculpt_strength: float = 0.25
+
+## Edge softness for height sculpting.
+@export_range(0.0, 1.0, 0.01) var sculpt_softness: float = 0.5
+
+## Target height used by the Height sculpt tool.
+@export_range(-4096.0, 4096.0, 0.01) var sculpt_target_height: float = 0.0
+
+## Built-in or custom grayscale mask multiplied with sculpt brush falloff.
+@export_enum("Soft Circle", "Hard Circle", "Noise", "Ridge", "Custom") var sculpt_brush_mask: int = SculptBrushMask.SOFT_CIRCLE
+
+## Optional custom grayscale mask used when Sculpt Brush Mask is Custom.
+@export var sculpt_custom_brush_mask: Texture2D
 
 @export_group("Paint Brush")
 
@@ -1081,6 +1122,10 @@ var _editor_texture_focus_position := Vector3.INF
 var _last_lod_focus_height := INF
 var _lod_mesh_cache: Dictionary = {}
 var _collision_shape_cache: Dictionary = {}
+var _sculpt_dirty_region_keys: Dictionary = {}
+var _sculpt_dirty_chunk_names: Dictionary = {}
+var _sculpt_collision_dirty_names: Dictionary = {}
+var _sculpt_revision_by_chunk: Dictionary = {}
 var _scatter_default_mesh: Mesh
 var _performance_lod_swap_count := 0
 var _performance_peak_frame_msec := 0.0
@@ -1156,6 +1201,10 @@ func _track_runtime_frame_time(delta: float) -> void:
 func _clear_runtime_performance_caches() -> void:
 	_lod_mesh_cache.clear()
 	_collision_shape_cache.clear()
+	_sculpt_dirty_region_keys.clear()
+	_sculpt_dirty_chunk_names.clear()
+	_sculpt_collision_dirty_names.clear()
+	_sculpt_revision_by_chunk.clear()
 	_performance_lod_swap_count = 0
 	_performance_peak_frame_msec = 0.0
 	_performance_last_frame_spike_msec = 0.0
@@ -1201,6 +1250,11 @@ func _ready() -> void:
 		_update_processing_state()
 		return
 	_queue_regenerate(GenerationMode.PREVIEW)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_EDITOR_PRE_SAVE:
+		_externalize_generated_scene_resources()
 
 
 func _exit_tree() -> void:
@@ -1408,6 +1462,74 @@ func setup_texture_focus_camera() -> void:
 	notify_property_list_changed()
 
 
+func setup_navigation_region() -> NavigationRegion3D:
+	var navigation_region := get_node_or_null(NAVIGATION_REGION_NAME) as NavigationRegion3D
+	if navigation_region == null:
+		navigation_region = NavigationRegion3D.new()
+		navigation_region.name = NAVIGATION_REGION_NAME
+		add_child(navigation_region)
+		_set_scene_owner(navigation_region)
+
+	if navigation_region.navigation_mesh == null:
+		navigation_region.navigation_mesh = NavigationMesh.new()
+
+	return navigation_region
+
+
+func bake_navigation_mesh() -> void:
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found to bake navigation from.")
+		return
+
+	var navigation_region := setup_navigation_region()
+	if navigation_region == null or navigation_region.navigation_mesh == null:
+		push_warning("Could not set up terrain navigation region.")
+		return
+
+	var faces := _collect_terrain_navigation_faces(_get_default_bake_lod_index())
+	if faces.is_empty():
+		push_warning("No terrain mesh faces were found to bake navigation from.")
+		return
+
+	var navigation_mesh := navigation_region.navigation_mesh
+	var source_geometry := NavigationMeshSourceGeometryData3D.new()
+	source_geometry.add_faces(faces, Transform3D.IDENTITY)
+	NavigationServer3D.bake_from_source_geometry_data(navigation_mesh, source_geometry)
+
+	navigation_region.set_navigation_mesh(null)
+	navigation_region.set_navigation_mesh(navigation_mesh)
+	_externalize_navigation_mesh_resource(_get_generated_resource_directory())
+	navigation_region.bake_finished.emit()
+	print("GDT Terrain: Baked navigation mesh from %d terrain triangles." % int(faces.size() / 3))
+
+
+func bake_terrain_occluder() -> void:
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found to bake an occluder from.")
+		return
+
+	var occluder_arrays := _collect_terrain_occluder_arrays(_get_default_bake_lod_index())
+	var vertices: PackedVector3Array = occluder_arrays.get("vertices", PackedVector3Array())
+	var indices: PackedInt32Array = occluder_arrays.get("indices", PackedInt32Array())
+	if vertices.is_empty() or indices.is_empty():
+		push_warning("No terrain mesh geometry was found to bake an occluder from.")
+		return
+
+	var occluder := ArrayOccluder3D.new()
+	occluder.set_arrays(vertices, indices)
+
+	var occluder_instance := get_node_or_null(TERRAIN_OCCLUDER_NAME) as OccluderInstance3D
+	if occluder_instance == null:
+		occluder_instance = OccluderInstance3D.new()
+		occluder_instance.name = TERRAIN_OCCLUDER_NAME
+		add_child(occluder_instance)
+		_set_scene_owner(occluder_instance)
+
+	occluder_instance.occluder = occluder
+	_externalize_occluder_resource(_get_generated_resource_directory())
+	print("GDT Terrain: Baked occluder from %d terrain triangles." % int(indices.size() / 3))
+
+
 func _restore_texture_focus_camera_binding() -> void:
 	if texture_focus_mode == TextureFocusMode.TARGET_NODE and get_node_or_null(texture_focus_target_path) is Node3D:
 		return
@@ -1481,6 +1603,51 @@ func get_region_at(world_position: Vector3) -> Resource:
 	return _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null) as Resource
 
 
+func get_painted_material_weights_at(world_position: Vector3) -> PackedFloat32Array:
+	var empty := _empty_paint_weights()
+	var local_position := to_local(world_position)
+	if not _point_inside_local_terrain(local_position.x, local_position.z):
+		return empty
+
+	var region := get_region_at(world_position)
+	if region != null and region.has_method("sample_painted_weights"):
+		var region_weights: PackedFloat32Array = region.sample_painted_weights(local_position.x, local_position.z)
+		if _paint_weights_total(region_weights) > 0.0:
+			return region_weights
+
+	var mesh_weights := _sample_painted_material_weights_from_chunks(local_position)
+	if _paint_weights_total(mesh_weights) > 0.0:
+		return mesh_weights
+	return empty
+
+
+func get_dominant_painted_material_layer_at(world_position: Vector3) -> int:
+	var weights := get_painted_material_weights_at(world_position)
+	return _get_dominant_paint_layer_from_weights(weights)
+
+
+func get_dominant_painted_material_layer_name_at(world_position: Vector3) -> String:
+	var layer := get_dominant_painted_material_layer_at(world_position)
+	return _get_paint_layer_name(layer)
+
+
+func _get_dominant_paint_layer_from_weights(weights: PackedFloat32Array) -> int:
+	var best_layer := -1
+	var best_weight := 0.0
+	for layer in mini(weights.size(), PAINT_LAYER_NAMES.size()):
+		var weight := float(weights[layer])
+		if weight > best_weight:
+			best_weight = weight
+			best_layer = layer
+	return best_layer
+
+
+func _get_paint_layer_name(layer: int) -> String:
+	if layer < 0 or layer >= PAINT_LAYER_NAMES.size():
+		return ""
+	return PAINT_LAYER_NAMES[layer]
+
+
 func rebuild_region_data() -> void:
 	if not _has_generated_chunks():
 		push_warning("No generated terrain chunks were found for region data rebuild.")
@@ -1525,6 +1692,8 @@ func clear_painted_material_masks() -> void:
 		var region: Resource = _region_data_by_key[key]
 		if region != null:
 			region.painted_material_masks = PackedColorArray()
+			if region.get("painted_material_mask_extra") != null:
+				region.set("painted_material_mask_extra", PackedVector2Array())
 			if not str(region.resource_path).is_empty():
 				ResourceSaver.save(region, region.resource_path)
 	_reset_painted_masks_from_chunks()
@@ -1659,6 +1828,77 @@ func _paint_weights_from_channels(color: Color, uv2: Vector2) -> PackedFloat32Ar
 	return weights
 
 
+func _empty_paint_weights() -> PackedFloat32Array:
+	var weights := PackedFloat32Array()
+	weights.resize(PAINT_LAYER_NAMES.size())
+	return weights
+
+
+func _paint_weights_total(weights: PackedFloat32Array) -> float:
+	var total := 0.0
+	for weight in weights:
+		total += maxf(float(weight), 0.0)
+	return total
+
+
+func _sample_painted_material_weights_from_chunks(local_position: Vector3) -> PackedFloat32Array:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return _empty_paint_weights()
+
+	var coordinates := _get_region_coordinates_for_local_position(local_position.x, local_position.z)
+	if coordinates.x < 0 or coordinates.y < 0:
+		return _empty_paint_weights()
+
+	var chunk := chunks_root.get_node_or_null("TerrainChunk_%02d_%02d" % [coordinates.x, coordinates.y]) as MeshInstance3D
+	if chunk != null and _chunk_uses_v5_masks(chunk):
+		var weights := _sample_painted_material_weights_from_mesh(chunk.mesh as ArrayMesh, local_position)
+		if _paint_weights_total(weights) > 0.0:
+			return weights
+
+	for child in chunks_root.get_children():
+		chunk = child as MeshInstance3D
+		if chunk == null or not _chunk_uses_v5_masks(chunk):
+			continue
+		if not _chunk_bounds_intersect_paint(chunk, local_position, 0.0):
+			continue
+		var fallback_weights := _sample_painted_material_weights_from_mesh(chunk.mesh as ArrayMesh, local_position)
+		if _paint_weights_total(fallback_weights) > 0.0:
+			return fallback_weights
+	return _empty_paint_weights()
+
+
+func _sample_painted_material_weights_from_mesh(mesh: ArrayMesh, local_position: Vector3) -> PackedFloat32Array:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return _empty_paint_weights()
+
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var uv2s := PackedVector2Array()
+	if arrays[Mesh.ARRAY_TEX_UV2] != null:
+		uv2s = arrays[Mesh.ARRAY_TEX_UV2]
+	if vertices.is_empty() or colors.size() != vertices.size():
+		return _empty_paint_weights()
+
+	var nearest_index := -1
+	var nearest_distance := INF
+	var query_2d := Vector2(local_position.x, local_position.z)
+	for vertex_index in vertices.size():
+		var vertex := vertices[vertex_index]
+		var distance := Vector2(vertex.x, vertex.z).distance_squared_to(query_2d)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_index = vertex_index
+	if nearest_index < 0:
+		return _empty_paint_weights()
+
+	var uv2 := Vector2.ZERO
+	if nearest_index < uv2s.size():
+		uv2 = uv2s[nearest_index]
+	return _paint_weights_from_channels(colors[nearest_index], uv2)
+
+
 func _apply_paint_to_weights(current: PackedFloat32Array, layer: int, amount: float, mode: int) -> PackedFloat32Array:
 	var selected_layer := clampi(layer, PaintLayer.LOWLAND, PaintLayer.SNOW)
 	var clamped_amount := clampf(amount, 0.0, 1.0)
@@ -1752,11 +1992,606 @@ func _paint_region_data_for_chunk(chunk: MeshInstance3D, local_position: Vector3
 				continue
 			var amount := strength * (1.0 - clampf(distance / maxf(grid_radius, 0.001), 0.0, 1.0))
 			var current: Color = region.get_painted_mask_grid(x, z)
-			var weights := _paint_weights_from_channels(current, Vector2.ZERO)
+			var current_extra := Vector2.ZERO
+			if region.has_method("get_painted_mask_extra_grid"):
+				current_extra = region.get_painted_mask_extra_grid(x, z)
+			var weights := _paint_weights_from_channels(current, current_extra)
 			weights = _apply_paint_to_weights(weights, layer, amount, mode)
-			region.set_painted_mask_grid(x, z, Color(weights[0], weights[1], weights[2], weights[3]))
+			if region.has_method("set_painted_mask_grid"):
+				region.set_painted_mask_grid(x, z, Color(weights[0], weights[1], weights[2], weights[3]), Vector2(weights[4], weights[5]))
 	if persist_resources and not str(region.resource_path).is_empty():
 		ResourceSaver.save(region, region.resource_path)
+
+
+func sculpt_height_at(world_position: Vector3, radius: float, strength: float, mode: int, mask: int = -1, options: Dictionary = {}) -> void:
+	if not sculpt_enabled:
+		push_warning("Sculpting is disabled. Enable Sculpt Enabled before sculpting terrain.")
+		return
+	if not region_data_enabled:
+		push_warning("Sculpting requires Region Data Enabled so height deltas can be stored.")
+		return
+	if not _has_generated_chunks():
+		push_warning("No generated terrain chunks were found for sculpting.")
+		return
+	if not _ensure_active_heightfield():
+		return
+	_ensure_region_data_index()
+	if _region_data_by_key.is_empty():
+		_rebuild_missing_region_data_from_chunks(true)
+		_ensure_region_data_index()
+
+	var local_position := to_local(world_position)
+	var sculpt_radius_value := maxf(radius, 0.001)
+	var sculpt_strength_value := maxf(strength, 0.0)
+	if sculpt_strength_value <= 0.0 and mode != SculptMode.SMOOTH:
+		return
+	var sculpt_mask := int(mask) if mask >= 0 else int(sculpt_brush_mask)
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+
+	var affected_chunks: Array[MeshInstance3D] = []
+	var affected_chunk_names: Dictionary = {}
+	var changed_region_coordinates: Dictionary = {}
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null:
+			continue
+		if not _chunk_bounds_intersect_paint(chunk, local_position, sculpt_radius_value):
+			continue
+		if _sculpt_region_data_for_chunk(chunk, local_position, sculpt_radius_value, sculpt_strength_value, mode, sculpt_mask, options):
+			_mark_sculpt_chunk_dirty(chunk)
+			affected_chunk_names[chunk.name] = chunk
+			var coordinates := _get_chunk_coordinates(chunk)
+			changed_region_coordinates[_region_key(coordinates.x, coordinates.y)] = coordinates
+
+	var sculpt_center := Vector2(local_position.x, local_position.z)
+	for synced_chunk in _sync_sculpt_edges_for_regions(changed_region_coordinates, sculpt_center, sculpt_radius_value):
+		if synced_chunk != null:
+			affected_chunk_names[synced_chunk.name] = synced_chunk
+
+	for affected_chunk_variant in affected_chunk_names.values():
+		var affected_chunk := affected_chunk_variant as MeshInstance3D
+		if affected_chunk != null:
+			affected_chunks.append(affected_chunk)
+
+	if not affected_chunks.is_empty():
+		_rebuild_sculpted_chunks_for_list(affected_chunks, false)
+		_mark_generated_helpers_stale()
+
+
+func commit_sculpt_edits(refresh_collision: bool = true, rebuild_saved_lods: bool = false) -> void:
+	if not _has_pending_sculpt_edits():
+		return
+	_save_dirty_sculpt_regions()
+	if rebuild_saved_lods:
+		_rebuild_dirty_sculpted_lod_resources()
+	if refresh_collision:
+		_refresh_dirty_sculpt_collision()
+	_sculpt_dirty_region_keys.clear()
+	_sculpt_dirty_chunk_names.clear()
+	_sculpt_collision_dirty_names.clear()
+
+
+func clear_sculpted_heights() -> void:
+	_ensure_region_data_index()
+	var had_collision := _has_generated_collision()
+	_sculpt_dirty_region_keys.clear()
+	_sculpt_dirty_chunk_names.clear()
+	_sculpt_collision_dirty_names.clear()
+	for key in _region_data_by_key.keys():
+		var region: Resource = _region_data_by_key[key]
+		if region == null:
+			continue
+		if region.has_method("clear_sculpt_deltas"):
+			region.clear_sculpt_deltas()
+		else:
+			region.set("sculpt_height_deltas", PackedFloat32Array())
+		if save_region_data:
+			var save_path := str(region.resource_path)
+			var coordinates_variant = region.get("region_coordinates")
+			if save_path.is_empty() and coordinates_variant is Vector2i:
+				var coordinates: Vector2i = coordinates_variant
+				save_path = _get_region_data_path(coordinates.x, coordinates.y)
+			if not save_path.is_empty():
+				var save_error := ResourceSaver.save(region, save_path)
+				if save_error != OK:
+					push_warning("Could not save cleared sculpt terrain region %s. Error code: %d" % [save_path, save_error])
+	_heightfield_dirty = true
+	_collision_shape_cache.clear()
+	if _ensure_active_heightfield():
+		rebuild_sculpted_chunks()
+	if had_collision:
+		_mark_all_chunk_collision_revisions_dirty()
+		generate_collision_for_existing_terrain()
+	_mark_generated_helpers_stale()
+
+
+func rebuild_sculpted_chunks() -> void:
+	if not _has_generated_chunks() or not _ensure_active_heightfield():
+		return
+	_save_dirty_sculpt_regions()
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	var chunks: Array[MeshInstance3D] = []
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null:
+			chunks.append(chunk)
+	_rebuild_sculpted_chunks_for_list(chunks, true)
+	_sculpt_dirty_region_keys.clear()
+	_sculpt_dirty_chunk_names.clear()
+	_sculpt_collision_dirty_names.clear()
+
+
+func pick_sculpt_height(world_position: Vector3) -> float:
+	var height := get_height_at(world_position)
+	return sculpt_target_height if is_nan(height) else height - global_position.y
+
+
+func _sculpt_region_data_for_chunk(
+	chunk: MeshInstance3D,
+	local_position: Vector3,
+	radius: float,
+	strength: float,
+	mode: int,
+	mask: int,
+	options: Dictionary
+) -> bool:
+	var coordinates := _get_chunk_coordinates(chunk)
+	var region: Resource = _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null)
+	if region == null:
+		return false
+	if region.has_method("ensure_sculpt_storage"):
+		region.ensure_sculpt_storage()
+
+	var grid_center: Vector2 = region.world_to_grid(local_position.x, local_position.z)
+	var grid_step := maxf((region.world_max.x - region.world_min.x) / float(maxi(1, region.resolution)), 0.001)
+	var grid_radius := radius / grid_step
+	var changed := false
+	var start_local := options.get("slope_start", Vector3.INF) as Vector3
+	var end_local := options.get("slope_end", Vector3.INF) as Vector3
+	var brush_center := Vector2(local_position.x, local_position.z)
+	var hard_radius := maxf(radius, 0.001)
+	var soft_radius := hard_radius * clampf(sculpt_softness, 0.0, 1.0)
+	var inner_radius := maxf(hard_radius - soft_radius, 0.0)
+
+	for z in range(maxi(0, floori(grid_center.y - grid_radius)), mini(region.resolution, ceili(grid_center.y + grid_radius)) + 1):
+		for x in range(maxi(0, floori(grid_center.x - grid_radius)), mini(region.resolution, ceili(grid_center.x + grid_radius)) + 1):
+			var sample_local := _region_grid_to_local(region, x, z)
+			var sample_position := Vector2(sample_local.x, sample_local.z)
+			var distance := sample_position.distance_to(brush_center)
+			if distance > hard_radius:
+				continue
+			var falloff := 1.0
+			if distance > inner_radius:
+				falloff = 1.0 - clampf((distance - inner_radius) / maxf(hard_radius - inner_radius, 0.001), 0.0, 1.0)
+			var mask_value := _sample_sculpt_brush_mask(mask, (sample_position - brush_center) / hard_radius)
+			var influence := clampf(falloff * mask_value, 0.0, 1.0)
+			if influence <= 0.0:
+				continue
+
+			var base_height := _get_region_base_height(region, x, z)
+			var current_delta := _get_region_sculpt_delta(region, x, z)
+			var current_height := base_height + current_delta
+			var new_delta := current_delta
+			match mode:
+				SculptMode.LOWER:
+					new_delta -= strength * influence
+				SculptMode.SMOOTH:
+					var average_height := _sample_region_average_height(region, x, z)
+					new_delta += (average_height - current_height) * clampf(strength, 0.0, 1.0) * influence
+				SculptMode.HEIGHT:
+					new_delta += (sculpt_target_height - current_height) * clampf(strength, 0.0, 1.0) * influence
+				SculptMode.SLOPE:
+					if start_local.is_finite() and end_local.is_finite():
+						var target_height := _sample_slope_target_height(start_local, end_local, sample_local)
+						new_delta += (target_height - current_height) * clampf(strength, 0.0, 1.0) * influence
+				_:
+					new_delta += strength * influence
+			if is_equal_approx(new_delta, current_delta):
+				continue
+			_set_region_sculpt_delta(region, x, z, new_delta)
+			_set_active_height_from_region_sample(region, coordinates, x, z, base_height + new_delta)
+			changed = true
+
+	return changed
+
+
+func _has_pending_sculpt_edits() -> bool:
+	return not _sculpt_dirty_region_keys.is_empty() or not _sculpt_dirty_chunk_names.is_empty() or not _sculpt_collision_dirty_names.is_empty()
+
+
+func _mark_sculpt_chunk_dirty(chunk: MeshInstance3D) -> void:
+	if chunk == null:
+		return
+	var coordinates := _get_chunk_coordinates(chunk)
+	var key := _region_key(coordinates.x, coordinates.y)
+	_sculpt_dirty_region_keys[key] = coordinates
+	_sculpt_dirty_chunk_names[chunk.name] = true
+	if _chunk_has_any_collision(chunk):
+		_sculpt_collision_dirty_names[chunk.name] = true
+	_sculpt_revision_by_chunk[chunk.name] = int(_sculpt_revision_by_chunk.get(chunk.name, 0)) + 1
+	for lod_index in LOD_STRIDES.size():
+		var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+		if not mesh_path.is_empty():
+			_lod_mesh_cache.erase(mesh_path)
+	chunk.set_meta("terrain_sculpt_dirty", true)
+	chunk.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk.get(chunk.name, 0)))
+
+
+func _save_dirty_sculpt_regions() -> void:
+	if not save_region_data:
+		return
+	DirAccess.make_dir_recursive_absolute(_get_region_data_directory())
+	for key in _sculpt_dirty_region_keys.keys():
+		var region: Resource = _region_data_by_key.get(key, null)
+		if region == null:
+			continue
+		var coordinates: Vector2i = _sculpt_dirty_region_keys[key]
+		var save_path := str(region.resource_path)
+		if save_path.is_empty():
+			save_path = _get_region_data_path(coordinates.x, coordinates.y)
+		var save_error := ResourceSaver.save(region, save_path)
+		if save_error != OK:
+			push_warning("Could not save sculpted terrain region %s. Error code: %d" % [save_path, save_error])
+
+
+func _rebuild_dirty_sculpted_lod_resources() -> void:
+	var chunks: Array[MeshInstance3D] = []
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and _sculpt_dirty_chunk_names.has(chunk.name):
+			chunks.append(chunk)
+	_rebuild_sculpted_chunks_for_list(chunks, true)
+
+
+func _refresh_dirty_sculpt_collision() -> void:
+	if collision_mode == CollisionMode.DISABLED or _sculpt_collision_dirty_names.is_empty():
+		return
+	if _is_generating_collision:
+		_cancel_collision_generation()
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	_configure_mesh_builder()
+	var refreshed := false
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null or not _sculpt_collision_dirty_names.has(chunk.name):
+			continue
+		if not _chunk_has_any_collision(chunk):
+			continue
+		_clear_collision_shape_cache_for_chunk(chunk)
+		_add_collision_from_existing_mesh(chunk)
+		refreshed = true
+	if refreshed:
+		_apply_collision_visual_visibility()
+
+
+func _mark_all_chunk_collision_revisions_dirty() -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null:
+			continue
+		_sculpt_revision_by_chunk[chunk.name] = int(_sculpt_revision_by_chunk.get(chunk.name, int(chunk.get_meta("terrain_sculpt_revision", 0)))) + 1
+		chunk.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk[chunk.name]))
+
+
+func _sync_sculpt_edges_for_regions(region_coordinates_by_key: Dictionary, brush_center: Vector2, radius: float) -> Array[MeshInstance3D]:
+	var affected_chunks: Array[MeshInstance3D] = []
+	if region_coordinates_by_key.is_empty():
+		return affected_chunks
+
+	var processed_pairs := {}
+	var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for coordinates_variant in region_coordinates_by_key.values():
+		var coordinates: Vector2i = coordinates_variant
+		var region: Resource = _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null)
+		if region == null:
+			continue
+		for direction in directions:
+			if not _brush_touches_region_edge(region, direction, brush_center, radius):
+				continue
+			var neighbor_coordinates: Vector2i = coordinates + direction
+			var neighbor_key := _region_key(neighbor_coordinates.x, neighbor_coordinates.y)
+			if not _region_data_by_key.has(neighbor_key):
+				continue
+			var current_key := _region_key(coordinates.x, coordinates.y)
+			var pair_key := current_key + "|" + neighbor_key if current_key < neighbor_key else neighbor_key + "|" + current_key
+			if processed_pairs.has(pair_key):
+				continue
+			processed_pairs[pair_key] = true
+			if _sync_sculpt_region_edge_pair(coordinates, neighbor_coordinates, region_coordinates_by_key.has(neighbor_key)):
+				var chunk := _get_chunk_for_coordinates(coordinates)
+				if chunk != null:
+					_mark_sculpt_chunk_dirty(chunk)
+					affected_chunks.append(chunk)
+				var neighbor_chunk := _get_chunk_for_coordinates(neighbor_coordinates)
+				if neighbor_chunk != null:
+					_mark_sculpt_chunk_dirty(neighbor_chunk)
+					affected_chunks.append(neighbor_chunk)
+	return affected_chunks
+
+
+func _brush_touches_region_edge(region: Resource, direction: Vector2i, brush_center: Vector2, radius: float) -> bool:
+	if region == null:
+		return false
+	var grid_padding := _get_region_grid_step(region) * 1.5
+	var padded_radius := radius + grid_padding
+	if direction.x != 0:
+		var edge_x: float = region.world_max.x if direction.x > 0 else region.world_min.x
+		if absf(brush_center.x - edge_x) > padded_radius:
+			return false
+		return brush_center.y >= region.world_min.y - padded_radius and brush_center.y <= region.world_max.y + padded_radius
+	if direction.y != 0:
+		var edge_z: float = region.world_max.y if direction.y > 0 else region.world_min.y
+		if absf(brush_center.y - edge_z) > padded_radius:
+			return false
+		return brush_center.x >= region.world_min.x - padded_radius and brush_center.x <= region.world_max.x + padded_radius
+	return false
+
+
+func _get_region_grid_step(region: Resource) -> float:
+	if region == null:
+		return 0.001
+	return maxf((region.world_max.x - region.world_min.x) / float(maxi(1, region.resolution)), 0.001)
+
+
+func _sync_sculpt_region_edge_pair(coordinates: Vector2i, neighbor_coordinates: Vector2i, neighbor_was_changed: bool) -> bool:
+	var region: Resource = _region_data_by_key.get(_region_key(coordinates.x, coordinates.y), null)
+	var neighbor: Resource = _region_data_by_key.get(_region_key(neighbor_coordinates.x, neighbor_coordinates.y), null)
+	if region == null or neighbor == null:
+		return false
+	if region.resolution != neighbor.resolution:
+		return false
+
+	var direction := neighbor_coordinates - coordinates
+	var resolution: int = region.resolution
+	var changed := false
+	if abs(direction.x) == 1:
+		var region_x := resolution if direction.x > 0 else 0
+		var neighbor_x := 0 if direction.x > 0 else resolution
+		for z in range(resolution + 1):
+			if _sync_sculpt_edge_sample(region, coordinates, region_x, z, neighbor, neighbor_coordinates, neighbor_x, z, neighbor_was_changed):
+				changed = true
+	elif abs(direction.y) == 1:
+		var region_z := resolution if direction.y > 0 else 0
+		var neighbor_z := 0 if direction.y > 0 else resolution
+		for x in range(resolution + 1):
+			if _sync_sculpt_edge_sample(region, coordinates, x, region_z, neighbor, neighbor_coordinates, x, neighbor_z, neighbor_was_changed):
+				changed = true
+	return changed
+
+
+func _sync_sculpt_edge_sample(
+	region: Resource,
+	coordinates: Vector2i,
+	x: int,
+	z: int,
+	neighbor: Resource,
+	neighbor_coordinates: Vector2i,
+	neighbor_x: int,
+	neighbor_z: int,
+	neighbor_was_changed: bool
+) -> bool:
+	var region_base := _get_region_base_height(region, x, z)
+	var neighbor_base := _get_region_base_height(neighbor, neighbor_x, neighbor_z)
+	var region_height := region_base + _get_region_sculpt_delta(region, x, z)
+	var neighbor_height := neighbor_base + _get_region_sculpt_delta(neighbor, neighbor_x, neighbor_z)
+	var target_height := (region_height + neighbor_height) * 0.5 if neighbor_was_changed else region_height
+	if is_equal_approx(region_height, target_height) and is_equal_approx(neighbor_height, target_height):
+		return false
+
+	_set_region_sculpt_delta(region, x, z, target_height - region_base)
+	_set_region_sculpt_delta(neighbor, neighbor_x, neighbor_z, target_height - neighbor_base)
+	_set_active_height_from_region_sample(region, coordinates, x, z, target_height)
+	_set_active_height_from_region_sample(neighbor, neighbor_coordinates, neighbor_x, neighbor_z, target_height)
+	return true
+
+
+func _get_region_base_height(region: Resource, x: int, z: int) -> float:
+	if region.has_method("get_base_height_grid"):
+		return float(region.get_base_height_grid(x, z))
+	return float(region.height_samples[z * (region.resolution + 1) + x])
+
+
+func _get_region_sculpt_delta(region: Resource, x: int, z: int) -> float:
+	if region.has_method("get_sculpt_delta_grid"):
+		return float(region.get_sculpt_delta_grid(x, z))
+	var index: int = z * (region.resolution + 1) + x
+	return float(region.sculpt_height_deltas[index]) if index < region.sculpt_height_deltas.size() else 0.0
+
+
+func _set_region_sculpt_delta(region: Resource, x: int, z: int, value: float) -> void:
+	if region.has_method("set_sculpt_delta_grid"):
+		region.set_sculpt_delta_grid(x, z, value)
+		return
+	var side: int = region.resolution + 1
+	var index: int = z * side + x
+	if region.sculpt_height_deltas.size() != side * side:
+		region.sculpt_height_deltas.resize(side * side)
+	region.sculpt_height_deltas[index] = value
+
+
+func _get_chunk_for_coordinates(coordinates: Vector2i) -> MeshInstance3D:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return null
+	return chunks_root.get_node_or_null("TerrainChunk_%02d_%02d" % [coordinates.x, coordinates.y]) as MeshInstance3D
+
+
+func _sample_region_average_height(region: Resource, grid_x: int, grid_z: int) -> float:
+	var total := 0.0
+	var count := 0
+	for z in range(maxi(0, grid_z - 1), mini(region.resolution, grid_z + 1) + 1):
+		for x in range(maxi(0, grid_x - 1), mini(region.resolution, grid_x + 1) + 1):
+			if region.has_method("get_sculpted_height_grid"):
+				total += float(region.get_sculpted_height_grid(x, z))
+			else:
+				var index: int = z * (region.resolution + 1) + x
+				total += float(region.height_samples[index]) + (float(region.sculpt_height_deltas[index]) if index < region.sculpt_height_deltas.size() else 0.0)
+			count += 1
+	return total / float(maxi(1, count))
+
+
+func _sample_slope_target_height(start_local: Vector3, end_local: Vector3, local_position: Vector3) -> float:
+	var start_2d := Vector2(start_local.x, start_local.z)
+	var end_2d := Vector2(end_local.x, end_local.z)
+	var direction := end_2d - start_2d
+	var length_squared := direction.length_squared()
+	if length_squared <= 0.0001:
+		return start_local.y
+	var t := clampf((Vector2(local_position.x, local_position.z) - start_2d).dot(direction) / length_squared, 0.0, 1.0)
+	return lerpf(start_local.y, end_local.y, t)
+
+
+func _region_grid_to_local(region: Resource, x: int, z: int) -> Vector3:
+	var tx := float(x) / float(maxi(1, region.resolution))
+	var tz := float(z) / float(maxi(1, region.resolution))
+	var local_x := lerpf(region.world_min.x, region.world_max.x, tx)
+	var local_z := lerpf(region.world_min.y, region.world_max.y, tz)
+	var local_y := float(region.get_sculpted_height_grid(x, z)) if region.has_method("get_sculpted_height_grid") else float(region.height_samples[z * (region.resolution + 1) + x])
+	return Vector3(local_x, local_y, local_z)
+
+
+func _set_active_height_from_region_sample(region: Resource, coordinates: Vector2i, x: int, z: int, value: float) -> void:
+	if _active_heightfield == null or not _active_heightfield.is_valid():
+		return
+	var global_x: int = coordinates.x * region.resolution + x
+	var global_z: int = coordinates.y * region.resolution + z
+	_active_heightfield.set_grid(global_x, global_z, value)
+
+
+func _sample_sculpt_brush_mask(mask: int, normalized_offset: Vector2) -> float:
+	var distance := normalized_offset.length()
+	if distance > 1.0:
+		return 0.0
+	match mask:
+		SculptBrushMask.HARD_CIRCLE:
+			return 1.0
+		SculptBrushMask.NOISE:
+			var angle_noise := sin((normalized_offset.x * 41.0 + normalized_offset.y * 17.0) * 12.9898) * 43758.5453
+			return clampf(0.55 + (angle_noise - floor(angle_noise)) * 0.45, 0.0, 1.0)
+		SculptBrushMask.RIDGE:
+			return clampf(1.0 - abs(distance - 0.45) / 0.45, 0.0, 1.0)
+		SculptBrushMask.CUSTOM:
+			return _sample_custom_sculpt_brush_mask(normalized_offset)
+		_:
+			var soft := 1.0 - clampf(distance, 0.0, 1.0)
+			return soft * soft * (3.0 - 2.0 * soft)
+
+
+func _sample_custom_sculpt_brush_mask(normalized_offset: Vector2) -> float:
+	if sculpt_custom_brush_mask == null:
+		return _sample_sculpt_brush_mask(SculptBrushMask.SOFT_CIRCLE, normalized_offset)
+	var image := sculpt_custom_brush_mask.get_image()
+	if image == null or image.is_empty():
+		return _sample_sculpt_brush_mask(SculptBrushMask.SOFT_CIRCLE, normalized_offset)
+	var uv := normalized_offset * 0.5 + Vector2(0.5, 0.5)
+	var x := clampi(roundi(uv.x * float(image.get_width() - 1)), 0, image.get_width() - 1)
+	var y := clampi(roundi(uv.y * float(image.get_height() - 1)), 0, image.get_height() - 1)
+	var color := image.get_pixel(x, y)
+	return clampf((color.r + color.g + color.b) / 3.0 * color.a, 0.0, 1.0)
+
+
+func _rebuild_sculpted_chunks_for_list(chunks: Array[MeshInstance3D], rebuild_saved_resources: bool) -> void:
+	if chunks.is_empty():
+		return
+	_configure_mesh_builder()
+	for chunk in chunks:
+		if chunk == null:
+			continue
+		var coordinates := _get_chunk_coordinates(chunk)
+		_rebuild_sculpted_chunk_mesh(chunk, coordinates.x, coordinates.y, rebuild_saved_resources)
+	_apply_viewport_culling()
+	_update_material_focus(true)
+
+
+func _rebuild_sculpted_chunk_mesh(chunk: MeshInstance3D, chunk_x: int, chunk_z: int, rebuild_saved_resources: bool) -> void:
+	var current_lod := clampi(int(chunk.get_meta("terrain_current_lod", 0)), 0, LOD_STRIDES.size() - 1)
+	var display_stride := int(LOD_STRIDES[current_lod])
+	var display_mesh := _build_chunk_mesh_with_region_masks(chunk_x, chunk_z, display_stride, display_stride > 1)
+	display_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
+	display_mesh.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk.get(chunk.name, 0)))
+	chunk.mesh = display_mesh
+	chunk.set_meta("terrain_current_lod", current_lod)
+	if not rebuild_saved_resources:
+		return
+
+	var saved_paths: Array[String] = []
+	for lod_index in LOD_STRIDES.size():
+		var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+		if mesh_path.is_empty() or saved_paths.has(mesh_path):
+			continue
+		saved_paths.append(mesh_path)
+		var stride := int(LOD_STRIDES[lod_index])
+		var lod_mesh := _build_chunk_mesh_with_region_masks(chunk_x, chunk_z, stride, stride > 1)
+		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
+		var save_error := ResourceSaver.save(lod_mesh, mesh_path)
+		if save_error != OK:
+			push_warning("Could not save sculpted terrain mesh %s. Error code: %d" % [mesh_path, save_error])
+			continue
+		_lod_mesh_cache[mesh_path] = lod_mesh
+	chunk.set_meta("terrain_sculpt_dirty", false)
+
+
+func _build_chunk_mesh_with_region_masks(chunk_x: int, chunk_z: int, stride: int, preserve_detailed_edges: bool = false) -> ArrayMesh:
+	var mesh := _build_chunk_mesh(chunk_x, chunk_z, stride, preserve_detailed_edges)
+	var region: Resource = _region_data_by_key.get(_region_key(chunk_x, chunk_z), null)
+	if region == null or not _new_meshes_use_v5_masks():
+		return mesh
+	return _apply_region_paint_masks_to_mesh(mesh, region)
+
+
+func _apply_region_paint_masks_to_mesh(mesh: ArrayMesh, region: Resource) -> ArrayMesh:
+	if mesh == null or mesh.get_surface_count() == 0:
+		return mesh
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors := PackedColorArray()
+	var uv2s := PackedVector2Array()
+	var base_colors := PackedColorArray()
+	var base_uv2s := PackedVector2Array()
+	if arrays[Mesh.ARRAY_COLOR] is PackedColorArray:
+		base_colors = arrays[Mesh.ARRAY_COLOR]
+	if arrays[Mesh.ARRAY_TEX_UV2] is PackedVector2Array:
+		base_uv2s = arrays[Mesh.ARRAY_TEX_UV2]
+	colors.resize(vertices.size())
+	uv2s.resize(vertices.size())
+	for vertex_index in vertices.size():
+		if vertex_index < base_colors.size():
+			colors[vertex_index] = base_colors[vertex_index]
+		if vertex_index < base_uv2s.size():
+			uv2s[vertex_index] = base_uv2s[vertex_index]
+		var vertex := vertices[vertex_index]
+		var weights: PackedFloat32Array = region.sample_painted_weights(vertex.x, vertex.z) if region.has_method("sample_painted_weights") else PackedFloat32Array()
+		if weights.size() >= PAINT_LAYER_NAMES.size() and _paint_weights_total(weights) > 0.0:
+			colors[vertex_index] = Color(weights[0], weights[1], weights[2], weights[3])
+			uv2s[vertex_index] = Vector2(weights[4], weights[5])
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
+	var rebuilt_mesh := ArrayMesh.new()
+	rebuilt_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	rebuilt_mesh.set_meta("terrain_lod_edge_version", int(mesh.get_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)))
+	rebuilt_mesh.set_meta("terrain_paint_encoding", TERRAIN_PAINT_ENCODING_WEIGHTS_V1)
+	return rebuilt_mesh
+
+
+func _mark_generated_helpers_stale() -> void:
+	var navigation_region := get_node_or_null(NAVIGATION_REGION_NAME) as NavigationRegion3D
+	if navigation_region != null:
+		navigation_region.set_meta("terrain_bake_stale", true)
+	var occluder := get_node_or_null(TERRAIN_OCCLUDER_NAME) as OccluderInstance3D
+	if occluder != null:
+		occluder.set_meta("terrain_bake_stale", true)
 
 
 func generate_scatter() -> void:
@@ -2381,7 +3216,7 @@ func _update_generation_phase_for_mesh_work() -> void:
 func _build_chunk_data_threaded(chunk_coordinates: Vector2i, display_stride: int, build_lods: bool, settings: Dictionary) -> Dictionary:
 	var builder := TerrainMeshBuilderScript.new()
 	builder.configure(settings)
-	var display_arrays := builder.build_chunk_mesh_arrays(chunk_coordinates.x, chunk_coordinates.y, display_stride)
+	var display_arrays := builder.build_chunk_mesh_arrays(chunk_coordinates.x, chunk_coordinates.y, display_stride, display_stride > 1)
 	var lod_arrays := []
 
 	if build_lods:
@@ -2513,8 +3348,8 @@ func _finish_generation_if_complete() -> void:
 	_set_generation_phase(GenerationPhase.IDLE)
 
 
-func _build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, add_skirts: bool = false) -> ArrayMesh:
-	return _mesh_builder.build_chunk_mesh(chunk_x, chunk_z, display_stride, add_skirts)
+func _build_chunk_mesh(chunk_x: int, chunk_z: int, display_stride: int, preserve_detailed_edges: bool = false) -> ArrayMesh:
+	return _mesh_builder.build_chunk_mesh(chunk_x, chunk_z, display_stride, preserve_detailed_edges)
 
 
 func _configure_noise() -> void:
@@ -2546,10 +3381,36 @@ func _ensure_active_heightfield() -> bool:
 		_timing_add("heightfield", timing_start)
 		return false
 	_active_heightfield.copy_from(_source_heightfield)
+	_apply_sculpt_deltas_to_active_heightfield()
 	_heightfield_dirty = false
 	_heightfield_resolution = target_resolution
 	_timing_add("heightfield", timing_start)
 	return true
+
+
+func _apply_sculpt_deltas_to_active_heightfield() -> void:
+	if not region_data_enabled or _active_heightfield == null or not _active_heightfield.is_valid():
+		return
+	_ensure_region_data_index()
+	for key in _region_data_by_key.keys():
+		var region: Resource = _region_data_by_key[key]
+		if region == null or not region.is_valid():
+			continue
+		var deltas: PackedFloat32Array = region.get("sculpt_height_deltas")
+		if deltas.is_empty():
+			continue
+		var coordinates: Vector2i = region.region_coordinates
+		var side: int = region.resolution + 1
+		for z in side:
+			for x in side:
+				var index: int = z * side + x
+				if index >= deltas.size():
+					continue
+				var delta := float(deltas[index])
+				if is_zero_approx(delta):
+					continue
+				var base_height: float = region.get_base_height_grid(x, z) if region.has_method("get_base_height_grid") else region.height_samples[index]
+				_active_heightfield.set_grid(coordinates.x * region.resolution + x, coordinates.y * region.resolution + z, base_height + delta)
 
 
 func _build_source_heightfield(total_resolution: int) -> bool:
@@ -2948,7 +3809,7 @@ func _save_chunk_lod_resources(chunk: MeshInstance3D, chunk_x: int, chunk_z: int
 	chunk.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
 	for lod_index in LOD_STRIDES.size():
 		var stride: int = LOD_STRIDES[lod_index]
-		var lod_mesh := existing_lod0_mesh if lod_index == 0 and existing_lod0_mesh != null and _active_display_stride == 1 else _build_chunk_mesh(chunk_x, chunk_z, stride, stride > 1)
+		var lod_mesh := existing_lod0_mesh if lod_index == 0 and existing_lod0_mesh != null and _active_display_stride == 1 else _build_chunk_mesh_with_region_masks(chunk_x, chunk_z, stride, stride > 1)
 		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
 		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index, resource_directory)
 		var mesh_error := ResourceSaver.save(lod_mesh, mesh_path)
@@ -2978,6 +3839,9 @@ func _save_chunk_lod_resources_from_arrays(chunk: MeshInstance3D, chunk_x: int, 
 	chunk.set_meta("terrain_material_encoding", _get_new_mesh_material_encoding())
 	for lod_index in mini(LOD_STRIDES.size(), lod_arrays.size()):
 		var lod_mesh := _mesh_builder.create_mesh_from_arrays(lod_arrays[lod_index] as Array)
+		var region: Resource = _region_data_by_key.get(_region_key(chunk_x, chunk_z), null)
+		if region != null and _new_meshes_use_v5_masks():
+			lod_mesh = _apply_region_paint_masks_to_mesh(lod_mesh, region)
 		lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
 		var mesh_path := _get_lod_mesh_path(chunk.name, lod_index, resource_directory)
 		var mesh_error := ResourceSaver.save(lod_mesh, mesh_path)
@@ -2993,6 +3857,113 @@ func _save_chunk_lod_resources_from_arrays(chunk: MeshInstance3D, chunk_x: int, 
 	chunk.set_meta("terrain_chunk_z", chunk_z)
 	chunk.set_meta("terrain_current_lod", 0)
 	return OK
+
+
+func _externalize_generated_scene_resources() -> void:
+	if not Engine.is_editor_hint():
+		return
+	if not _has_generated_chunks() and get_node_or_null(NAVIGATION_REGION_NAME) == null and get_node_or_null(TERRAIN_OCCLUDER_NAME) == null:
+		return
+
+	var resource_directory := _get_generated_resource_directory()
+	if DirAccess.make_dir_recursive_absolute(resource_directory) != OK:
+		return
+
+	_externalize_chunk_scene_resources(resource_directory)
+	_externalize_navigation_mesh_resource(resource_directory)
+	_externalize_occluder_resource(resource_directory)
+
+
+func _externalize_chunk_scene_resources(resource_directory: String) -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk == null:
+			continue
+		_externalize_chunk_mesh_resource(chunk, resource_directory)
+		_externalize_chunk_collision_resource(chunk, resource_directory)
+
+
+func _externalize_chunk_mesh_resource(chunk: MeshInstance3D, resource_directory: String) -> void:
+	var mesh := chunk.mesh as ArrayMesh
+	if mesh == null:
+		return
+	if not mesh.resource_path.is_empty():
+		return
+
+	var current_lod := clampi(int(chunk.get_meta("terrain_current_lod", 0)), 0, LOD_STRIDES.size() - 1)
+	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(current_lod), ""))
+	if mesh_path.is_empty():
+		mesh_path = _get_lod_mesh_path(chunk.name, current_lod, resource_directory)
+	var save_error := ResourceSaver.save(mesh, mesh_path)
+	if save_error != OK:
+		push_warning("Could not save terrain mesh resource %s. Error code: %d" % [mesh_path, save_error])
+		return
+
+	var saved_mesh := ResourceLoader.load(mesh_path, "ArrayMesh", ResourceLoader.CACHE_MODE_REPLACE) as ArrayMesh
+	if saved_mesh != null:
+		chunk.mesh = saved_mesh
+		chunk.set_meta(_get_lod_meta_key(current_lod), mesh_path)
+		_lod_mesh_cache[mesh_path] = saved_mesh
+
+
+func _externalize_chunk_collision_resource(chunk: MeshInstance3D, resource_directory: String) -> void:
+	var collision_shape := chunk.get_node_or_null("CollisionBody/CollisionShape") as CollisionShape3D
+	if collision_shape == null or collision_shape.shape == null:
+		return
+	if not collision_shape.shape.resource_path.is_empty():
+		return
+
+	var shape_path := "%s/%s_collision_shape.res" % [resource_directory, chunk.name]
+	var save_error := ResourceSaver.save(collision_shape.shape, shape_path)
+	if save_error != OK:
+		push_warning("Could not save terrain collision shape %s. Error code: %d" % [shape_path, save_error])
+		return
+
+	var saved_shape := ResourceLoader.load(shape_path, "Shape3D", ResourceLoader.CACHE_MODE_REPLACE) as Shape3D
+	if saved_shape != null:
+		_configure_terrain_collision_shape(saved_shape)
+		collision_shape.shape = saved_shape
+
+
+func _externalize_navigation_mesh_resource(resource_directory: String) -> void:
+	var navigation_region := get_node_or_null(NAVIGATION_REGION_NAME) as NavigationRegion3D
+	if navigation_region == null or navigation_region.navigation_mesh == null:
+		return
+	if not navigation_region.navigation_mesh.resource_path.is_empty():
+		return
+
+	DirAccess.make_dir_recursive_absolute(resource_directory)
+	var navigation_path := "%s/terrain_navigation_mesh.res" % resource_directory
+	var save_error := ResourceSaver.save(navigation_region.navigation_mesh, navigation_path)
+	if save_error != OK:
+		push_warning("Could not save terrain navigation mesh %s. Error code: %d" % [navigation_path, save_error])
+		return
+
+	var saved_navigation_mesh := ResourceLoader.load(navigation_path, "NavigationMesh", ResourceLoader.CACHE_MODE_REPLACE) as NavigationMesh
+	if saved_navigation_mesh != null:
+		navigation_region.navigation_mesh = saved_navigation_mesh
+
+
+func _externalize_occluder_resource(resource_directory: String) -> void:
+	var occluder_instance := get_node_or_null(TERRAIN_OCCLUDER_NAME) as OccluderInstance3D
+	if occluder_instance == null or occluder_instance.occluder == null:
+		return
+	if not occluder_instance.occluder.resource_path.is_empty():
+		return
+
+	DirAccess.make_dir_recursive_absolute(resource_directory)
+	var occluder_path := "%s/terrain_occluder.res" % resource_directory
+	var save_error := ResourceSaver.save(occluder_instance.occluder, occluder_path)
+	if save_error != OK:
+		push_warning("Could not save terrain occluder %s. Error code: %d" % [occluder_path, save_error])
+		return
+
+	var saved_occluder := ResourceLoader.load(occluder_path, "Occluder3D", ResourceLoader.CACHE_MODE_REPLACE) as Occluder3D
+	if saved_occluder != null:
+		occluder_instance.occluder = saved_occluder
 
 
 func _get_lod_mesh_path(chunk_name: String, lod_index: int, resource_directory: String = "") -> String:
@@ -3129,6 +4100,13 @@ func _write_settings_to_preset(preset: Resource) -> void:
 	preset.editor_brush_enabled = editor_brush_enabled
 	preset.editor_brush_mode = editor_brush_mode
 	preset.editor_brush_spacing = editor_brush_spacing
+	preset.sculpt_enabled = sculpt_enabled
+	preset.sculpt_radius = sculpt_radius
+	preset.sculpt_strength = sculpt_strength
+	preset.sculpt_softness = sculpt_softness
+	preset.sculpt_target_height = sculpt_target_height
+	preset.sculpt_brush_mask = sculpt_brush_mask
+	preset.sculpt_custom_brush_mask = sculpt_custom_brush_mask
 	preset.paint_enabled = paint_enabled
 	preset.paint_layer = paint_layer
 	preset.paint_strength = paint_strength
@@ -3239,6 +4217,27 @@ func _apply_full_preset_settings(preset: Resource) -> void:
 	var loaded_editor_brush_spacing = preset.get("editor_brush_spacing")
 	if loaded_editor_brush_spacing != null:
 		editor_brush_spacing = float(loaded_editor_brush_spacing)
+	var loaded_sculpt_enabled = preset.get("sculpt_enabled")
+	if loaded_sculpt_enabled != null:
+		sculpt_enabled = bool(loaded_sculpt_enabled)
+	var loaded_sculpt_radius = preset.get("sculpt_radius")
+	if loaded_sculpt_radius != null:
+		sculpt_radius = float(loaded_sculpt_radius)
+	var loaded_sculpt_strength = preset.get("sculpt_strength")
+	if loaded_sculpt_strength != null:
+		sculpt_strength = float(loaded_sculpt_strength)
+	var loaded_sculpt_softness = preset.get("sculpt_softness")
+	if loaded_sculpt_softness != null:
+		sculpt_softness = float(loaded_sculpt_softness)
+	var loaded_sculpt_target_height = preset.get("sculpt_target_height")
+	if loaded_sculpt_target_height != null:
+		sculpt_target_height = float(loaded_sculpt_target_height)
+	var loaded_sculpt_brush_mask = preset.get("sculpt_brush_mask")
+	if loaded_sculpt_brush_mask != null:
+		sculpt_brush_mask = int(loaded_sculpt_brush_mask)
+	var loaded_sculpt_custom_brush_mask = preset.get("sculpt_custom_brush_mask")
+	if loaded_sculpt_custom_brush_mask != null:
+		sculpt_custom_brush_mask = loaded_sculpt_custom_brush_mask
 	var loaded_paint_enabled = preset.get("paint_enabled")
 	if loaded_paint_enabled != null:
 		paint_enabled = bool(loaded_paint_enabled)
@@ -3452,6 +4451,22 @@ func _get_chunk_center(chunk_x: int, chunk_z: int) -> Vector2:
 		float(chunk_x) * chunk_world_size + chunk_world_size * 0.5 - _active_half_size,
 		float(chunk_z) * chunk_world_size + chunk_world_size * 0.5 - _active_half_size
 	)
+
+
+func _get_chunk_world_size() -> float:
+	return terrain_size / float(maxi(1, chunks_per_side))
+
+
+func _get_chunk_distance_to_focus(chunk: MeshInstance3D, focus: Vector2) -> float:
+	var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
+	var half_chunk_size := _get_chunk_world_size() * 0.5
+	var delta := (focus - chunk_center).abs() - Vector2(half_chunk_size, half_chunk_size)
+	var outside_delta := Vector2(maxf(delta.x, 0.0), maxf(delta.y, 0.0))
+	return outside_delta.length()
+
+
+func _chunk_intersects_radius(chunk: MeshInstance3D, focus: Vector2, radius: float) -> bool:
+	return _get_chunk_distance_to_focus(chunk, focus) <= radius
 
 
 func _get_chunk_coordinates(chunk: MeshInstance3D) -> Vector2i:
@@ -3751,13 +4766,23 @@ func _apply_viewport_culling() -> void:
 			_apply_lod_to_chunk(chunk)
 			continue
 
-		var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
-		chunk.visible = chunk_center.distance_to(culling_center) <= visible_radius
+		chunk.visible = _chunk_intersects_radius(chunk, culling_center, visible_radius)
 		if chunk.visible:
 			_apply_lod_to_chunk(chunk)
 	_update_lod_statistics()
 	_last_visible_chunk_count = visible_lod0_chunks + visible_lod1_chunks + visible_lod2_chunks + visible_lod3_chunks
 	_update_bake_state(GenerationMode.FINAL if final_terrain_locked else _active_generation_mode)
+
+
+func _invalidate_chunk_lod_state() -> void:
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return
+
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and chunk.has_meta("terrain_current_lod"):
+			chunk.remove_meta("terrain_current_lod")
 
 
 func _count_generated_chunks() -> int:
@@ -3828,8 +4853,7 @@ func _get_stable_distance_lod_index(chunk: MeshInstance3D) -> int:
 	var high_view_bias := _get_high_view_lod_bias()
 	var current_offset := clampi(current_lod_index - cap_index - high_view_bias, 0, 3)
 	var raw_offset := clampi(raw_lod_index - cap_index - high_view_bias, 0, 3)
-	var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
-	var distance_ratio := chunk_center.distance_to(culling_center) / maxf(visible_radius, 0.001)
+	var distance_ratio := _get_chunk_distance_to_focus(chunk, culling_center) / maxf(visible_radius, 0.001)
 
 	if raw_lod_index > current_lod_index:
 		if distance_ratio < _get_lod_offset_enter_ratio(raw_offset) + LOD_HYSTERESIS_RATIO:
@@ -3844,8 +4868,12 @@ func _get_stable_distance_lod_index(chunk: MeshInstance3D) -> int:
 func _get_distance_lod_index(chunk: MeshInstance3D) -> int:
 	var cap_index := _get_viewport_quality_lod_index()
 	var radius := maxf(visible_radius, 0.001)
-	var chunk_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
-	var distance_ratio := chunk_center.distance_to(culling_center) / radius
+	var distance_ratio := _get_chunk_distance_to_focus(chunk, culling_center) / radius
+	var lod_index := _get_lod_index_for_distance_ratio(distance_ratio, cap_index)
+	return _clamp_lod_to_visible_neighbors(chunk, lod_index, cap_index)
+
+
+func _get_lod_index_for_distance_ratio(distance_ratio: float, cap_index: int) -> int:
 	var lod_offset := 0
 
 	match lod_profile:
@@ -3871,6 +4899,36 @@ func _get_distance_lod_index(chunk: MeshInstance3D) -> int:
 
 	lod_offset += _get_high_view_lod_bias()
 	return clampi(cap_index + lod_offset, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+
+
+func _clamp_lod_to_visible_neighbors(chunk: MeshInstance3D, lod_index: int, cap_index: int) -> int:
+	if lod_index <= cap_index:
+		return lod_index
+
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return lod_index
+
+	var coordinates := _get_chunk_coordinates(chunk)
+	var radius := maxf(visible_radius, 0.001)
+	var neighbor_offsets: Array[Vector2i] = [
+		Vector2i(-1, 0),
+		Vector2i(1, 0),
+		Vector2i(0, -1),
+		Vector2i(0, 1),
+	]
+	for offset in neighbor_offsets:
+		var neighbor_coordinates: Vector2i = coordinates + offset
+		if neighbor_coordinates.x < 0 or neighbor_coordinates.y < 0 or neighbor_coordinates.x >= chunks_per_side or neighbor_coordinates.y >= chunks_per_side:
+			continue
+		var neighbor := chunks_root.get_node_or_null("TerrainChunk_%02d_%02d" % [neighbor_coordinates.x, neighbor_coordinates.y]) as MeshInstance3D
+		if neighbor == null or not _chunk_intersects_radius(neighbor, culling_center, visible_radius):
+			continue
+		var neighbor_distance_ratio := _get_chunk_distance_to_focus(neighbor, culling_center) / radius
+		var neighbor_lod_index := _get_lod_index_for_distance_ratio(neighbor_distance_ratio, cap_index)
+		lod_index = mini(lod_index, neighbor_lod_index + 1)
+
+	return clampi(lod_index, ViewportQuality.FULL, ViewportQuality.EIGHTH)
 
 
 func _get_lod_offset_enter_ratio(lod_offset: int) -> float:
@@ -3980,6 +5038,16 @@ func _set_chunk_lod(chunk: MeshInstance3D, lod_index: int) -> void:
 	lod_index = clampi(lod_index, ViewportQuality.FULL, ViewportQuality.EIGHTH)
 	if int(chunk.get_meta("terrain_current_lod", -1)) == lod_index and not _chunk_lod_mesh_needs_rebuild(chunk, lod_index):
 		return
+	if bool(chunk.get_meta("terrain_sculpt_dirty", false)):
+		var coordinates := _get_chunk_coordinates(chunk)
+		var stride: int = LOD_STRIDES[lod_index]
+		var sculpted_lod_mesh := _build_chunk_mesh_with_region_masks(coordinates.x, coordinates.y, stride, stride > 1)
+		sculpted_lod_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
+		sculpted_lod_mesh.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk.get(chunk.name, 0)))
+		chunk.mesh = sculpted_lod_mesh
+		chunk.set_meta("terrain_current_lod", lod_index)
+		_performance_lod_swap_count += 1
+		return
 
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
 	if mesh_path.is_empty() and lod_index == 0 and chunk.mesh != null and not chunk.mesh.resource_path.is_empty():
@@ -4040,7 +5108,7 @@ func _rebuild_chunk_lod_mesh(chunk: MeshInstance3D, lod_index: int, mesh_path: S
 		return null
 	var coordinates := _get_chunk_coordinates(chunk)
 	var stride: int = LOD_STRIDES[clampi(lod_index, ViewportQuality.FULL, ViewportQuality.EIGHTH)]
-	var rebuilt_mesh := _build_chunk_mesh(coordinates.x, coordinates.y, stride, stride > 1)
+	var rebuilt_mesh := _build_chunk_mesh_with_region_masks(coordinates.x, coordinates.y, stride, stride > 1)
 	rebuilt_mesh.set_meta("terrain_lod_edge_version", TERRAIN_LOD_EDGE_VERSION)
 	if not mesh_path.is_empty():
 		var save_error := ResourceSaver.save(rebuilt_mesh, mesh_path)
@@ -4108,8 +5176,7 @@ func _chunk_is_in_collision_coverage(chunk: MeshInstance3D) -> bool:
 		CollisionCoverage.VISIBLE_CHUNKS:
 			if not viewport_culling_enabled:
 				return true
-			var visible_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
-			return visible_center.distance_to(culling_center) <= visible_radius
+			return _chunk_intersects_radius(chunk, culling_center, visible_radius)
 		CollisionCoverage.DYNAMIC_NEAR_FOCUS:
 			var dynamic_center := chunk.get_meta("terrain_chunk_center", Vector2.ZERO) as Vector2
 			var focus := _last_dynamic_collision_focus if _last_dynamic_collision_focus.is_finite() else culling_center
@@ -4158,7 +5225,14 @@ func _chunk_has_current_collision(chunk: MeshInstance3D) -> bool:
 	var collision_shape := chunk.get_node_or_null("CollisionBody/CollisionShape") as CollisionShape3D
 	if collision_shape == null or collision_shape.shape == null:
 		return false
-	return int(collision_shape.get_meta("terrain_collision_quality", -1)) == clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+	var current_quality := int(collision_shape.get_meta("terrain_collision_quality", -1)) == clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+	var current_sculpt := int(collision_shape.get_meta("terrain_sculpt_revision", -1)) == int(_sculpt_revision_by_chunk.get(chunk.name, int(chunk.get_meta("terrain_sculpt_revision", 0))))
+	return current_quality and current_sculpt
+
+
+func _chunk_has_any_collision(chunk: MeshInstance3D) -> bool:
+	var collision_shape := chunk.get_node_or_null("CollisionBody/CollisionShape") as CollisionShape3D
+	return collision_shape != null and collision_shape.shape != null
 
 
 func _refresh_collision_for_focus_if_needed() -> void:
@@ -4240,6 +5314,99 @@ func _clamp_focus_to_terrain_bounds(focus: Vector2) -> Vector2:
 		clampf(focus.x, -half_size, half_size),
 		clampf(focus.y, -half_size, half_size)
 	)
+
+
+func _get_default_bake_lod_index() -> int:
+	return maxi(0, LOD_STRIDES.size() - 1)
+
+
+func _get_generated_chunk_mesh_instances() -> Array[MeshInstance3D]:
+	var chunks: Array[MeshInstance3D] = []
+	var chunks_root := get_node_or_null(TERRAIN_CHUNKS_NAME)
+	if chunks_root == null:
+		return chunks
+	for child in chunks_root.get_children():
+		var chunk := child as MeshInstance3D
+		if chunk != null and chunk.mesh != null:
+			chunks.append(chunk)
+	return chunks
+
+
+func _get_chunk_bake_mesh(chunk: MeshInstance3D, preferred_lod_index: int) -> ArrayMesh:
+	if chunk == null:
+		return null
+
+	var lod_index := clampi(preferred_lod_index, 0, LOD_STRIDES.size() - 1)
+	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+	if not mesh_path.is_empty():
+		var lod_mesh := _get_cached_lod_mesh(mesh_path)
+		if lod_mesh != null and int(lod_mesh.get_meta("terrain_lod_edge_version", 0)) >= TERRAIN_LOD_EDGE_VERSION:
+			return lod_mesh
+
+	return chunk.mesh as ArrayMesh
+
+
+func _collect_terrain_navigation_faces(preferred_lod_index: int) -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	for chunk in _get_generated_chunk_mesh_instances():
+		var mesh := _get_chunk_bake_mesh(chunk, preferred_lod_index)
+		if mesh == null:
+			continue
+		_append_mesh_faces_to_navigation(mesh, chunk.transform, faces)
+	return faces
+
+
+func _append_mesh_faces_to_navigation(mesh: ArrayMesh, local_transform: Transform3D, faces: PackedVector3Array) -> void:
+	for surface_index in mesh.get_surface_count():
+		var arrays := mesh.surface_get_arrays(surface_index)
+		if arrays.size() <= Mesh.ARRAY_VERTEX or not (arrays[Mesh.ARRAY_VERTEX] is PackedVector3Array):
+			continue
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if arrays.size() > Mesh.ARRAY_INDEX and arrays[Mesh.ARRAY_INDEX] is PackedInt32Array:
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for source_index in indices:
+				faces.append(local_transform * vertices[int(source_index)])
+		else:
+			for vertex in vertices:
+				faces.append(local_transform * vertex)
+
+
+func _collect_terrain_occluder_arrays(preferred_lod_index: int) -> Dictionary:
+	var combined_vertices := PackedVector3Array()
+	var combined_indices := PackedInt32Array()
+	for chunk in _get_generated_chunk_mesh_instances():
+		var mesh := _get_chunk_bake_mesh(chunk, preferred_lod_index)
+		if mesh == null:
+			continue
+		_append_mesh_arrays_to_occluder(mesh, chunk.transform, combined_vertices, combined_indices)
+	return {
+		"vertices": combined_vertices,
+		"indices": combined_indices,
+	}
+
+
+func _append_mesh_arrays_to_occluder(
+	mesh: ArrayMesh,
+	local_transform: Transform3D,
+	combined_vertices: PackedVector3Array,
+	combined_indices: PackedInt32Array
+) -> void:
+	for surface_index in mesh.get_surface_count():
+		var arrays := mesh.surface_get_arrays(surface_index)
+		if arrays.size() <= Mesh.ARRAY_VERTEX or not (arrays[Mesh.ARRAY_VERTEX] is PackedVector3Array):
+			continue
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var vertex_offset := combined_vertices.size()
+		for vertex in vertices:
+			combined_vertices.append(local_transform * vertex)
+
+		if arrays.size() > Mesh.ARRAY_INDEX and arrays[Mesh.ARRAY_INDEX] is PackedInt32Array:
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for source_index in indices:
+				combined_indices.append(vertex_offset + int(source_index))
+		else:
+			for vertex_index in vertices.size():
+				combined_indices.append(vertex_offset + vertex_index)
 
 
 func _has_generated_chunks() -> bool:
@@ -4428,6 +5595,7 @@ func _add_collision_from_existing_mesh(chunk_mesh_instance: MeshInstance3D) -> v
 	collision_shape.visible = collision_visuals_visible
 	collision_shape.shape = collision_shape_resource
 	collision_shape.set_meta("terrain_collision_quality", clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH))
+	collision_shape.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk.get(chunk_mesh_instance.name, int(chunk_mesh_instance.get_meta("terrain_sculpt_revision", 0)))))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
 
@@ -4445,8 +5613,9 @@ func _add_chunk_collision(chunk_mesh_instance: MeshInstance3D, chunk_x: int, chu
 	collision_shape.name = "CollisionShape"
 	collision_shape.visible = collision_visuals_visible
 	var collision_stride: int = LOD_STRIDES[clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)]
-	collision_shape.shape = _create_terrain_collision_shape(_build_chunk_mesh(chunk_x, chunk_z, collision_stride, collision_stride > 1))
+	collision_shape.shape = _create_terrain_collision_shape(_build_chunk_mesh(chunk_x, chunk_z, collision_stride, false))
 	collision_shape.set_meta("terrain_collision_quality", clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH))
+	collision_shape.set_meta("terrain_sculpt_revision", int(_sculpt_revision_by_chunk.get(chunk_mesh_instance.name, int(chunk_mesh_instance.get_meta("terrain_sculpt_revision", 0)))))
 	body.add_child(collision_shape)
 	_set_scene_owner(collision_shape)
 
@@ -4477,15 +5646,19 @@ func _configure_existing_collision_shapes() -> void:
 
 func _get_collision_mesh_for_chunk(chunk: MeshInstance3D) -> ArrayMesh:
 	var lod_index := clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+	if bool(chunk.get_meta("terrain_sculpt_dirty", false)):
+		var coordinates := _get_chunk_coordinates(chunk)
+		var collision_stride: int = LOD_STRIDES[lod_index]
+		return _build_chunk_mesh_with_region_masks(coordinates.x, coordinates.y, collision_stride, false)
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
 	if not mesh_path.is_empty():
 		var saved_lod_mesh := _get_cached_lod_mesh(mesh_path)
-		if saved_lod_mesh != null:
+		if saved_lod_mesh != null and int(saved_lod_mesh.get_meta("terrain_lod_edge_version", 0)) >= TERRAIN_LOD_EDGE_VERSION:
 			return saved_lod_mesh
 
 	var coordinates := _get_chunk_coordinates(chunk)
 	var collision_stride: int = LOD_STRIDES[lod_index]
-	return _build_chunk_mesh(coordinates.x, coordinates.y, collision_stride, collision_stride > 1)
+	return _build_chunk_mesh(coordinates.x, coordinates.y, collision_stride, false)
 
 
 func _get_collision_shape_for_chunk(chunk: MeshInstance3D) -> Shape3D:
@@ -4503,11 +5676,29 @@ func _get_collision_shape_for_chunk(chunk: MeshInstance3D) -> Shape3D:
 
 func _get_collision_shape_cache_key(chunk: MeshInstance3D) -> String:
 	var lod_index := clampi(collision_quality, ViewportQuality.FULL, ViewportQuality.EIGHTH)
+	var sculpt_revision := int(_sculpt_revision_by_chunk.get(chunk.name, int(chunk.get_meta("terrain_sculpt_revision", 0))))
 	var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
 	if not mesh_path.is_empty():
-		return "%s@%d" % [mesh_path, lod_index]
+		return "%s@%d@v%d@sculpt%d" % [mesh_path, lod_index, TERRAIN_LOD_EDGE_VERSION, sculpt_revision]
 	var coordinates := _get_chunk_coordinates(chunk)
-	return "%s:%d:%d:%d:%d" % [chunk.name, coordinates.x, coordinates.y, lod_index, TERRAIN_LOD_EDGE_VERSION]
+	return "%s:%d:%d:%d:%d:%d" % [chunk.name, coordinates.x, coordinates.y, lod_index, TERRAIN_LOD_EDGE_VERSION, sculpt_revision]
+
+
+func _clear_collision_shape_cache_for_chunk(chunk: MeshInstance3D) -> void:
+	if chunk == null:
+		return
+	var prefix := chunk.name + ":"
+	for key in _collision_shape_cache.keys():
+		var key_string := str(key)
+		if key_string.begins_with(prefix):
+			_collision_shape_cache.erase(key)
+	for lod_index in LOD_STRIDES.size():
+		var mesh_path := str(chunk.get_meta(_get_lod_meta_key(lod_index), ""))
+		if mesh_path.is_empty():
+			continue
+		for key in _collision_shape_cache.keys():
+			if str(key).begins_with(mesh_path + "@"):
+				_collision_shape_cache.erase(key)
 
 
 func _remove_collision_from_chunk(chunk: Node) -> void:

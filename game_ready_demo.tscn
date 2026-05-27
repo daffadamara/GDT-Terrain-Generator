@@ -2,647 +2,41 @@
 
 [ext_resource type="Script" uid="uid://baflqji2nt3c0" path="res://addons/gdt_terrain/src/gdt_terrain_3d.gd" id="1_vjj5o"]
 [ext_resource type="Script" uid="uid://bmhla7bat01wb" path="res://demo_player_controller.gd" id="2_bm88o"]
-[ext_resource type="Texture2D" uid="uid://b5udv1smuj1mu" path="res://material/rock_face/rock_face_03_diff_2k.png" id="2_c8vkb"]
-[ext_resource type="Texture2D" uid="uid://cjaccw1byox3d" path="res://material/rock_face/rock_face_03_disp_2k.png" id="3_mfq7f"]
+[ext_resource type="Material" uid="uid://bmg837akeax21" path="res://generated_terrain/terrain_procedural_material.res" id="2_eb4h2"]
+[ext_resource type="ArrayMesh" uid="uid://5kpxr070a8hy" path="res://generated_terrain/TerrainChunk_03_00_lod3_mesh.res" id="3_eb4h2"]
 [ext_resource type="Shape3D" uid="uid://dojaij0xq3qa" path="res://generated_terrain/TerrainChunk_02_00_collision_shape.res" id="4_eb4h2"]
-[ext_resource type="Texture2D" uid="uid://ceh30rycxyyc4" path="res://material/rock_face/rock_face_03_nor_gl_2k.png" id="4_km85j"]
-[ext_resource type="ArrayMesh" uid="uid://cqotctwl7c8k6" path="res://generated_terrain/TerrainChunk_03_00_lod3_mesh.res" id="4_sbnts"]
-[ext_resource type="Texture2D" uid="uid://bu48mpjcki17i" path="res://material/rock_face/rock_face_03_rough_2k.png" id="5_p52qv"]
-[ext_resource type="ArrayMesh" uid="uid://koihk1lvvl7x" path="res://generated_terrain/TerrainChunk_00_00_lod3_mesh.res" id="6_khl5b"]
+[ext_resource type="ArrayMesh" uid="uid://dwksthq1ls25d" path="res://generated_terrain/TerrainChunk_02_00_lod1_mesh.res" id="5_xcved"]
 [ext_resource type="Shape3D" uid="uid://osvnlps3bqd8" path="res://generated_terrain/TerrainChunk_03_00_collision_shape.res" id="6_xcved"]
+[ext_resource type="ArrayMesh" uid="uid://djlq0vyf4yc2p" path="res://generated_terrain/TerrainChunk_01_00_lod1_mesh.res" id="7_k2kxt"]
 [ext_resource type="Shape3D" uid="uid://bgebp6bo15bro" path="res://generated_terrain/TerrainChunk_01_00_collision_shape.res" id="8_k2kxt"]
-[ext_resource type="Texture2D" uid="uid://q1wwi8mvg0bc" path="res://material/forest_ground/forest_ground_04_diff_2k.png" id="8_tlri0"]
-[ext_resource type="Texture2D" uid="uid://dg47i8f6m5kos" path="res://material/forest_ground/forest_ground_04_disp_2k.png" id="9_gqiyv"]
-[ext_resource type="Texture2D" uid="uid://1yn4ga3mua5h" path="res://material/forest_ground/forest_ground_04_nor_gl_2k.png" id="10_8mvdg"]
+[ext_resource type="ArrayMesh" uid="uid://vmyuyqerskwd" path="res://generated_terrain/TerrainChunk_00_00_lod3_mesh.res" id="9_xcved"]
 [ext_resource type="Shape3D" uid="uid://db6qo8ycfg5up" path="res://generated_terrain/TerrainChunk_00_00_collision_shape.res" id="10_jnibw"]
-[ext_resource type="Texture2D" uid="uid://7fpkx56soe0d" path="res://material/forest_ground/forest_ground_04_rough_2k.png" id="11_nkoy4"]
-[ext_resource type="Texture2D" uid="uid://b3lkj7vcblww8" path="res://material/sand_03/sand_03_diff_2k.png" id="12_4rx86"]
+[ext_resource type="ArrayMesh" uid="uid://dx2qqjy67dsuo" path="res://generated_terrain/TerrainChunk_03_01_lod1_mesh.res" id="11_70gyd"]
 [ext_resource type="Shape3D" uid="uid://pxjc78q545ys" path="res://generated_terrain/TerrainChunk_00_01_collision_shape.res" id="12_70gyd"]
-[ext_resource type="Texture2D" uid="uid://cky707nfnam66" path="res://material/sand_03/sand_03_disp_2k.png" id="13_22nnt"]
-[ext_resource type="Texture2D" uid="uid://fk6kybenm4vw" path="res://material/sand_03/sand_03_nor_gl_2k.png" id="14_ndgvp"]
+[ext_resource type="ArrayMesh" uid="uid://1uxbi0y8207m" path="res://generated_terrain/TerrainChunk_02_01_mesh.res" id="13_so1nq"]
 [ext_resource type="Shape3D" uid="uid://cxfh32jur0s6h" path="res://generated_terrain/TerrainChunk_03_01_collision_shape.res" id="14_so1nq"]
-[ext_resource type="Texture2D" uid="uid://bxnyuv10o8ps0" path="res://material/sand_03/sand_03_rough_2k.png" id="15_u6ysu"]
-[ext_resource type="Shape3D" uid="uid://bjo2licfuou3k" path="res://generated_terrain/TerrainChunk_02_01_collision_shape.res" id="16_gicl6"]
-[ext_resource type="Texture2D" uid="uid://ubpocisi7sml" path="res://material/rocky_terrain/rocky_terrain_02_diff_2k.png" id="17_kqcrt"]
-[ext_resource type="Shape3D" uid="uid://dyli4ao1yjknu" path="res://generated_terrain/TerrainChunk_01_01_collision_shape.res" id="18_hjkoc"]
-[ext_resource type="Texture2D" uid="uid://dv1kabdfvr8hg" path="res://material/rocky_terrain/rocky_terrain_02_disp_2k.png" id="18_qmokn"]
-[ext_resource type="Texture2D" uid="uid://douwl6inda411" path="res://material/rocky_terrain/rocky_terrain_02_nor_gl_2k.png" id="19_ugwg7"]
+[ext_resource type="ArrayMesh" uid="uid://cr4kfglrt3r0w" path="res://generated_terrain/TerrainChunk_01_01_mesh.res" id="15_gicl6"]
+[ext_resource type="Shape3D" uid="uid://hhifyvdgg6kd" path="res://generated_terrain/TerrainChunk_02_01_collision_shape.res" id="16_gicl6"]
+[ext_resource type="ArrayMesh" uid="uid://i6oba47uwx06" path="res://generated_terrain/TerrainChunk_00_01_lod1_mesh.res" id="17_hjkoc"]
+[ext_resource type="Shape3D" uid="uid://do7sle6nlakbu" path="res://generated_terrain/TerrainChunk_01_01_collision_shape.res" id="18_hjkoc"]
+[ext_resource type="ArrayMesh" uid="uid://jafm6yw53mvd" path="res://generated_terrain/TerrainChunk_00_02_lod1_mesh.res" id="19_7xie7"]
 [ext_resource type="Shape3D" uid="uid://bgqaxjherwe6y" path="res://generated_terrain/TerrainChunk_00_02_collision_shape.res" id="20_7xie7"]
-[ext_resource type="Texture2D" uid="uid://csyfyj5613ok2" path="res://material/rocky_terrain/rocky_terrain_02_rough_2k.png" id="20_uhi6s"]
-[ext_resource type="Texture2D" uid="uid://noqioqlhvl4i" path="res://material/snow/snow_02_diff_2k.png" id="21_g1u7f"]
-[ext_resource type="Texture2D" uid="uid://b8enytl2qtoky" path="res://material/snow/snow_02_disp_2k.png" id="22_k4ueo"]
+[ext_resource type="ArrayMesh" uid="uid://c51npuesoqv68" path="res://generated_terrain/TerrainChunk_02_02_mesh.res" id="21_m7wr8"]
 [ext_resource type="Shape3D" uid="uid://cgthfeeql6pk" path="res://generated_terrain/TerrainChunk_03_02_collision_shape.res" id="22_m7wr8"]
-[ext_resource type="Texture2D" uid="uid://chpwgu6unwm1p" path="res://material/snow/snow_02_nor_gl_2k.png" id="23_occn5"]
-[ext_resource type="Texture2D" uid="uid://dfeqmjxg3mqf0" path="res://material/snow/snow_02_rough_2k.png" id="24_6pmsk"]
+[ext_resource type="ArrayMesh" uid="uid://cyl778ydgjtxk" path="res://generated_terrain/TerrainChunk_03_02_lod1_mesh.res" id="23_7odr0"]
 [ext_resource type="Shape3D" uid="uid://coaqsgb4ftssf" path="res://generated_terrain/TerrainChunk_02_02_collision_shape.res" id="24_7odr0"]
-[ext_resource type="Texture2D" uid="uid://ctskxti4b0a6k" path="res://material/aerial_grass_rock/aerial_grass_rock_diff_2k.png" id="25_h61sf"]
-[ext_resource type="ArrayMesh" uid="uid://k1623shaq2f7" path="res://generated_terrain/TerrainChunk_02_00_lod3_mesh.res" id="26_5lmai"]
+[ext_resource type="ArrayMesh" uid="uid://qr0625kbm4v1" path="res://generated_terrain/TerrainChunk_01_02_mesh.res" id="25_feoca"]
 [ext_resource type="Shape3D" uid="uid://cg5w2srwbr3j6" path="res://generated_terrain/TerrainChunk_01_02_collision_shape.res" id="26_feoca"]
-[ext_resource type="Texture2D" uid="uid://d16h4ndedis4u" path="res://material/aerial_grass_rock/aerial_grass_rock_disp_2k.png" id="26_v2vv5"]
-[ext_resource type="Texture2D" uid="uid://bo60nrb4gdjs" path="res://material/aerial_grass_rock/aerial_grass_rock_nor_gl_2k.png" id="27_wruot"]
-[ext_resource type="Texture2D" uid="uid://pqhn7mii2iyn" path="res://material/aerial_grass_rock/aerial_grass_rock_rough_2k.png" id="28_6u4no"]
+[ext_resource type="ArrayMesh" uid="uid://c28ut657ppcmy" path="res://generated_terrain/TerrainChunk_00_03_lod3_mesh.res" id="27_k2kxt"]
 [ext_resource type="Shape3D" uid="uid://camn4mw71fh7w" path="res://generated_terrain/TerrainChunk_00_03_collision_shape.res" id="28_hjw85"]
+[ext_resource type="ArrayMesh" uid="uid://20m741ru3tyi" path="res://generated_terrain/TerrainChunk_01_03_lod1_mesh.res" id="29_68hcs"]
 [ext_resource type="Shape3D" uid="uid://cq3ckyuh33x42" path="res://generated_terrain/TerrainChunk_01_03_collision_shape.res" id="30_68hcs"]
-[ext_resource type="ArrayMesh" uid="uid://c3tcmhwuh7yy" path="res://generated_terrain/TerrainChunk_01_00_lod3_mesh.res" id="30_eh20j"]
+[ext_resource type="ArrayMesh" uid="uid://bcu6xk5fp62vp" path="res://generated_terrain/TerrainChunk_02_03_lod1_mesh.res" id="31_iv38u"]
+[ext_resource type="ArrayMesh" uid="uid://c627hkyg18eh2" path="res://generated_terrain/TerrainChunk_03_03_lod3_mesh.res" id="31_jnibw"]
 [ext_resource type="Shape3D" uid="uid://wicm6744lc0s" path="res://generated_terrain/TerrainChunk_03_03_collision_shape.res" id="32_iv38u"]
-[ext_resource type="ArrayMesh" uid="uid://brpyqvsw2bssn" path="res://generated_terrain/TerrainChunk_00_01_lod3_mesh.res" id="34_kwhfr"]
 [ext_resource type="Shape3D" uid="uid://ba5acb37sloh0" path="res://generated_terrain/TerrainChunk_02_03_collision_shape.res" id="34_l7tmf"]
-[ext_resource type="ArrayMesh" uid="uid://dft5o0dfd6k54" path="res://generated_terrain/TerrainChunk_03_01_lod3_mesh.res" id="36_c8vkb"]
-[ext_resource type="ArrayMesh" uid="uid://wuk0dcnexstv" path="res://generated_terrain/TerrainChunk_02_01_lod2_mesh.res" id="38_mfq7f"]
-[ext_resource type="ArrayMesh" uid="uid://b7gfnaxbuby35" path="res://generated_terrain/TerrainChunk_01_01_lod2_mesh.res" id="40_km85j"]
-[ext_resource type="ArrayMesh" uid="uid://bng6rw5cw7q6r" path="res://generated_terrain/TerrainChunk_00_02_lod3_mesh.res" id="42_p52qv"]
-[ext_resource type="ArrayMesh" uid="uid://cpnvn1l6h4rw7" path="res://generated_terrain/TerrainChunk_03_02_lod3_mesh.res" id="44_gei7y"]
-[ext_resource type="ArrayMesh" uid="uid://dasy231b7cf6y" path="res://generated_terrain/TerrainChunk_02_02_lod2_mesh.res" id="46_a5uf7"]
-[ext_resource type="ArrayMesh" uid="uid://deqynip28recu" path="res://generated_terrain/TerrainChunk_01_02_lod2_mesh.res" id="48_tlri0"]
-[ext_resource type="ArrayMesh" uid="uid://cbtq4m44vkmpi" path="res://generated_terrain/TerrainChunk_00_03_lod3_mesh.res" id="50_gqiyv"]
-[ext_resource type="ArrayMesh" uid="uid://c14k6aerqbh0a" path="res://generated_terrain/TerrainChunk_01_03_lod3_mesh.res" id="52_8mvdg"]
-[ext_resource type="ArrayMesh" uid="uid://c2ja1oxt583yr" path="res://generated_terrain/TerrainChunk_03_03_lod3_mesh.res" id="54_nkoy4"]
-[ext_resource type="ArrayMesh" uid="uid://2ksxhllxjuux" path="res://generated_terrain/TerrainChunk_02_03_lod3_mesh.res" id="56_4rx86"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_eh20j"]
-
-[sub_resource type="Shader" id="Shader_5lmai"]
-code = "
-shader_type spatial;
-render_mode cull_back, diffuse_burley, specular_schlick_ggx;
-
-uniform bool use_procedural_detail = true;
-uniform int material_mode = 0;
-uniform bool snow_enabled = true;
-uniform bool lowland_layer_enabled = false;
-uniform bool ground_layer_enabled = true;
-uniform bool upper_layer_enabled = false;
-uniform bool rocky_layer_enabled = true;
-uniform bool cliff_layer_enabled = true;
-uniform bool snow_layer_enabled = true;
-uniform sampler2D macro_noise_texture;
-uniform sampler2D detail_noise_texture;
-uniform sampler2D lowland_albedo_texture : source_color, repeat_enable;
-uniform sampler2D lowland_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D lowland_roughness_texture : repeat_enable;
-uniform sampler2D lowland_height_texture : repeat_enable;
-uniform sampler2D ground_albedo_texture : source_color, repeat_enable;
-uniform sampler2D ground_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D ground_roughness_texture : repeat_enable;
-uniform sampler2D ground_height_texture : repeat_enable;
-uniform sampler2D upper_albedo_texture : source_color, repeat_enable;
-uniform sampler2D upper_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D upper_roughness_texture : repeat_enable;
-uniform sampler2D upper_height_texture : repeat_enable;
-uniform sampler2D rocky_albedo_texture : source_color, repeat_enable;
-uniform sampler2D rocky_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D rocky_roughness_texture : repeat_enable;
-uniform sampler2D rocky_height_texture : repeat_enable;
-uniform sampler2D cliff_albedo_texture : source_color, repeat_enable;
-uniform sampler2D cliff_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D cliff_roughness_texture : repeat_enable;
-uniform sampler2D cliff_height_texture : repeat_enable;
-uniform sampler2D snow_albedo_texture : source_color, repeat_enable;
-uniform sampler2D snow_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D snow_roughness_texture : repeat_enable;
-uniform sampler2D snow_height_texture : repeat_enable;
-uniform sampler2D paint_lowland_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_lowland_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_lowland_roughness_texture : repeat_enable;
-uniform sampler2D paint_lowland_height_texture : repeat_enable;
-uniform sampler2D paint_ground_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_ground_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_ground_roughness_texture : repeat_enable;
-uniform sampler2D paint_ground_height_texture : repeat_enable;
-uniform sampler2D paint_upper_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_upper_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_upper_roughness_texture : repeat_enable;
-uniform sampler2D paint_upper_height_texture : repeat_enable;
-uniform sampler2D paint_rocky_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_rocky_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_rocky_roughness_texture : repeat_enable;
-uniform sampler2D paint_rocky_height_texture : repeat_enable;
-uniform sampler2D paint_cliff_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_cliff_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_cliff_roughness_texture : repeat_enable;
-uniform sampler2D paint_cliff_height_texture : repeat_enable;
-uniform sampler2D paint_snow_albedo_texture : source_color, repeat_enable;
-uniform sampler2D paint_snow_normal_texture : hint_normal, repeat_enable;
-uniform sampler2D paint_snow_roughness_texture : repeat_enable;
-uniform sampler2D paint_snow_height_texture : repeat_enable;
-uniform vec4 lowland_color : source_color = vec4(0.15, 0.21, 0.09, 1.0);
-uniform vec4 grass_color : source_color = vec4(0.24, 0.33, 0.15, 1.0);
-uniform vec4 rock_color : source_color = vec4(0.27, 0.24, 0.18, 1.0);
-uniform vec4 snow_color : source_color = vec4(0.86, 0.84, 0.76, 1.0);
-uniform float height_scale = 2.0;
-uniform float snow_height = 5.0;
-uniform float rock_slope_threshold = 0.44;
-uniform float texture_tile_scale = 0.18;
-uniform bool macro_texture_tiling_enabled = true;
-uniform vec3 texture_focus_position = vec3(0.0);
-uniform float close_texture_tile_scale = 0.20;
-uniform float medium_texture_tile_scale = 0.03;
-uniform float far_texture_tile_scale = 0.01;
-uniform float close_texture_radius = 24.0;
-uniform float medium_texture_radius = 48.0;
-uniform float far_texture_radius = 92.0;
-uniform float layer_blend_softness = 0.18;
-uniform float texture_normal_strength = 0.75;
-uniform float roughness_multiplier = 1.0;
-uniform float height_blend_strength = 0.12;
-uniform bool texture_bombing_enabled = true;
-uniform float texture_bombing_strength = 0.55;
-uniform float texture_bombing_cell_scale = 0.65;
-uniform int texture_bombing_samples = 2;
-uniform int material_performance_preset = 2;
-uniform bool far_material_cache_enabled = true;
-uniform sampler2D far_material_cache_texture : source_color, filter_linear, repeat_disable;
-uniform float terrain_world_size = 64.0;
-uniform float macro_variation_strength = 0.18;
-uniform float macro_variation_scale = 0.04;
-uniform float detail_noise_strength = 0.10;
-uniform float detail_noise_scale = 0.45;
-uniform float rock_detail_strength = 0.25;
-uniform float snow_detail_strength = 0.08;
-uniform float material_brightness = 1.2;
-uniform float material_contrast = 1.05;
-
-varying float terrain_height;
-varying vec3 world_position;
-varying vec3 world_normal;
-
-float soft_band(float edge0, float edge1, float value) {
-	if (abs(edge1 - edge0) < 0.0001) {
-		return 0.0;
-	}
-	float x = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
-	return x * x * (3.0 - 2.0 * x);
-}
-
-vec3 adjust_color(vec3 color) {
-	color *= material_brightness;
-	color = (color - vec3(0.5)) * material_contrast + vec3(0.5);
-	return clamp(color, vec3(0.0), vec3(1.0));
-}
-
-vec3 macro_tile_weights() {
-	if (!macro_texture_tiling_enabled) {
-		return vec3(0.0, 1.0, 0.0);
-	}
-
-	float focus_distance = distance(world_position.xz, texture_focus_position.xz);
-	float close_radius = max(close_texture_radius, 0.001);
-	float medium_radius = max(medium_texture_radius, close_radius + 0.001);
-	float far_radius = max(far_texture_radius, medium_radius + 0.001);
-	float close_weight = 1.0 - soft_band(close_radius, medium_radius, focus_distance);
-	float far_weight = soft_band(medium_radius, far_radius, focus_distance);
-	float medium_weight = max(1.0 - close_weight - far_weight, 0.0);
-	return vec3(close_weight, medium_weight, far_weight);
-}
-
-float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
-}
-
-vec2 rotate_quarter(vec2 uv, float rotation_index) {
-	float r = floor(mod(rotation_index, 4.0));
-	if (r < 0.5) {
-		return uv;
-	}
-	if (r < 1.5) {
-		return vec2(-uv.y, uv.x);
-	}
-	if (r < 2.5) {
-		return -uv;
-	}
-	return vec2(uv.y, -uv.x);
-}
-
-vec2 bombed_uv_from_cell(vec2 uv, vec2 cell, float cell_size) {
-	vec2 local = uv / cell_size - cell - vec2(0.5);
-	float h1 = hash12(cell);
-	float h2 = hash12(cell + vec2(17.0, 43.0));
-	float h3 = hash12(cell + vec2(71.0, 11.0));
-	vec2 transformed = rotate_quarter(local, floor(h1 * 4.0));
-	transformed.x *= h2 < 0.5 ? -1.0 : 1.0;
-	transformed.y *= h3 < 0.5 ? -1.0 : 1.0;
-	vec2 random_offset = vec2(hash12(cell + vec2(5.0, 19.0)), hash12(cell + vec2(29.0, 7.0))) - vec2(0.5);
-	return (cell + transformed + vec2(0.5)) * cell_size + random_offset * texture_bombing_strength * cell_size;
-}
-
-vec4 sample_bombed_cell(sampler2D source_texture, vec2 uv, vec2 cell, float cell_size, float weight, inout float total_weight) {
-	total_weight += weight;
-	return texture(source_texture, bombed_uv_from_cell(uv, cell, cell_size)) * weight;
-}
-
-vec4 sample_bombed_limited(sampler2D source_texture, vec2 uv, int sample_limit) {
-	int effective_samples = min(texture_bombing_samples, sample_limit);
-	if (!texture_bombing_enabled || effective_samples <= 0) {
-		return texture(source_texture, uv);
-	}
-
-	float cell_size = max(texture_bombing_cell_scale, 0.025);
-	vec2 cell_uv = uv / cell_size;
-	vec2 base_cell = floor(cell_uv);
-	vec2 local_blend = smoothstep(vec2(0.18), vec2(0.82), fract(cell_uv));
-	float total_weight = 0.0;
-	vec4 result = sample_bombed_cell(source_texture, uv, base_cell, cell_size, (1.0 - local_blend.x) * (1.0 - local_blend.y), total_weight);
-	if (effective_samples == 1) {
-		total_weight = 0.0;
-		result = sample_bombed_cell(source_texture, uv, base_cell, cell_size, 1.0 - local_blend.x, total_weight);
-		result += sample_bombed_cell(source_texture, uv, base_cell + vec2(1.0, 0.0), cell_size, local_blend.x, total_weight);
-		return result / max(total_weight, 0.0001);
-	}
-	result += sample_bombed_cell(source_texture, uv, base_cell + vec2(1.0, 0.0), cell_size, local_blend.x * (1.0 - local_blend.y), total_weight);
-	result += sample_bombed_cell(source_texture, uv, base_cell + vec2(0.0, 1.0), cell_size, (1.0 - local_blend.x) * local_blend.y, total_weight);
-	result += sample_bombed_cell(source_texture, uv, base_cell + vec2(1.0, 1.0), cell_size, local_blend.x * local_blend.y, total_weight);
-	return result / max(total_weight, 0.0001);
-}
-
-vec4 sample_bombed(sampler2D source_texture, vec2 uv) {
-	return sample_bombed_limited(source_texture, uv, texture_bombing_samples);
-}
-
-vec4 sample_macro_bombed(sampler2D source_texture, vec3 tile_weights, vec2 close_uv, vec2 medium_uv, vec2 far_uv, float layer_scale) {
-	if (!macro_texture_tiling_enabled) {
-		return sample_bombed(source_texture, medium_uv * layer_scale);
-	}
-
-	vec4 result = vec4(0.0);
-	if (tile_weights.x > 0.001) {
-		int close_samples = material_performance_preset >= 2 ? min(texture_bombing_samples, 1) : texture_bombing_samples;
-		result += sample_bombed_limited(source_texture, close_uv * layer_scale, close_samples) * tile_weights.x;
-	}
-	if (tile_weights.y > 0.001) {
-		int medium_samples = material_performance_preset == 0 ? texture_bombing_samples : min(texture_bombing_samples, 1);
-		result += sample_bombed_limited(source_texture, medium_uv * layer_scale, medium_samples) * tile_weights.y;
-	}
-	if (tile_weights.z > 0.001) {
-		int far_samples = material_performance_preset == 0 ? texture_bombing_samples : 0;
-		result += sample_bombed_limited(source_texture, far_uv * layer_scale, far_samples) * tile_weights.z;
-	}
-	return result;
-}
-
-vec2 terrain_cache_uv() {
-	float half_size = max(terrain_world_size * 0.5, 0.001);
-	return clamp((world_position.xz + vec2(half_size)) / max(terrain_world_size, 0.001), vec2(0.0), vec2(1.0));
-}
-
-vec3 sample_triplanar_albedo(sampler2D source_texture, vec3 position, vec3 normal, float tile_scale) {
-	vec3 weights = pow(abs(normal), vec3(4.0));
-	weights /= max(weights.x + weights.y + weights.z, 0.0001);
-	vec3 x_sample = texture(source_texture, position.zy * tile_scale).rgb;
-	vec3 y_sample = texture(source_texture, position.xz * tile_scale).rgb;
-	vec3 z_sample = texture(source_texture, position.xy * tile_scale).rgb;
-	return x_sample * weights.x + y_sample * weights.y + z_sample * weights.z;
-}
-
-float sample_triplanar_scalar(sampler2D source_texture, vec3 position, vec3 normal, float tile_scale) {
-	vec3 weights = pow(abs(normal), vec3(4.0));
-	weights /= max(weights.x + weights.y + weights.z, 0.0001);
-	float x_sample = texture(source_texture, position.zy * tile_scale).r;
-	float y_sample = texture(source_texture, position.xz * tile_scale).r;
-	float z_sample = texture(source_texture, position.xy * tile_scale).r;
-	return x_sample * weights.x + y_sample * weights.y + z_sample * weights.z;
-}
-
-vec3 sample_triplanar_normal(sampler2D source_texture, vec3 position, vec3 normal, float tile_scale) {
-	vec3 weights = pow(abs(normal), vec3(4.0));
-	weights /= max(weights.x + weights.y + weights.z, 0.0001);
-	vec3 x_sample = texture(source_texture, position.zy * tile_scale).rgb;
-	vec3 y_sample = texture(source_texture, position.xz * tile_scale).rgb;
-	vec3 z_sample = texture(source_texture, position.xy * tile_scale).rgb;
-	vec3 normal_sample = (x_sample * weights.x + y_sample * weights.y + z_sample * weights.z) * 2.0 - 1.0;
-	normal_sample.xy *= texture_normal_strength;
-	return normalize(normal_sample) * 0.5 + 0.5;
-}
-
-float sample_bombed_scalar(sampler2D source_texture, vec2 uv) {
-	return sample_bombed(source_texture, uv).r;
-}
-
-float sample_macro_bombed_scalar(sampler2D source_texture, vec3 tile_weights, vec2 close_uv, vec2 medium_uv, vec2 far_uv, float layer_scale) {
-	return sample_macro_bombed(source_texture, tile_weights, close_uv, medium_uv, far_uv, layer_scale).r;
-}
-
-vec3 sample_bombed_normal(sampler2D source_texture, vec2 uv) {
-	vec3 normal_sample = sample_bombed(source_texture, uv).rgb * 2.0 - 1.0;
-	normal_sample.xy *= texture_normal_strength;
-	return normalize(normal_sample) * 0.5 + 0.5;
-}
-
-vec3 sample_macro_bombed_normal(sampler2D source_texture, vec3 tile_weights, vec2 close_uv, vec2 medium_uv, vec2 far_uv, float layer_scale) {
-	vec3 normal_sample = sample_macro_bombed(source_texture, tile_weights, close_uv, medium_uv, far_uv, layer_scale).rgb * 2.0 - 1.0;
-	normal_sample.xy *= texture_normal_strength;
-	return normalize(normal_sample) * 0.5 + 0.5;
-}
-
-void vertex() {
-	terrain_height = VERTEX.y;
-	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	world_normal = normalize((MODEL_NORMAL_MATRIX * NORMAL).xyz);
-}
-
-void fragment() {
-	float normalized_height = clamp((terrain_height / max(height_scale, 0.001) + 1.0) * 0.5, 0.0, 1.0);
-	float slope = clamp(1.0 - world_normal.y, 0.0, 1.0);
-	vec4 painted_weights_rgba = clamp(COLOR, vec4(0.0), vec4(1.0));
-	vec2 painted_weights_uv2 = clamp(UV2, vec2(0.0), vec2(1.0));
-	float painted_total = painted_weights_rgba.r + painted_weights_rgba.g + painted_weights_rgba.b + painted_weights_rgba.a + painted_weights_uv2.x + painted_weights_uv2.y;
-	vec3 color = mix(lowland_color.rgb, grass_color.rgb, soft_band(0.20, 0.78, normalized_height));
-
-	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), slope);
-	float snow_blend_width = max(height_scale * 0.12, 0.35);
-	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
-
-	if (use_procedural_detail && material_mode != 1) {
-		float macro_noise = texture(macro_noise_texture, world_position.xz * macro_variation_scale).r * 2.0 - 1.0;
-		float detail_noise = texture(detail_noise_texture, world_position.xz * detail_noise_scale).r * 2.0 - 1.0;
-		color *= 1.0 + macro_noise * macro_variation_strength;
-		color *= 1.0 + detail_noise * detail_noise_strength * (1.0 - snow_amount * 0.45);
-		vec3 detailed_rock = rock_color.rgb * (1.0 + detail_noise * rock_detail_strength);
-		vec3 detailed_snow = snow_color.rgb * (1.0 + detail_noise * snow_detail_strength);
-		color = mix(color, detailed_rock, rock_amount);
-		color = mix(color, detailed_snow, snow_amount);
-	} else {
-		color = mix(color, rock_color.rgb, rock_amount);
-		color = mix(color, snow_color.rgb, snow_amount);
-	}
-
-	float roughness = mix(0.92, 0.64, rock_amount);
-
-	if (material_mode != 1 && painted_total > 0.001) {
-		float painted_lowland = painted_weights_rgba.r / max(painted_total, 0.0001);
-		float painted_ground = painted_weights_rgba.g / max(painted_total, 0.0001);
-		float painted_upper = painted_weights_rgba.b / max(painted_total, 0.0001);
-		float painted_rocky = painted_weights_rgba.a / max(painted_total, 0.0001);
-		float painted_cliff = painted_weights_uv2.x / max(painted_total, 0.0001);
-		float painted_snow = painted_weights_uv2.y / max(painted_total, 0.0001);
-		float paint_opacity = clamp(painted_total, 0.0, 1.0);
-		vec3 painted_color = lowland_color.rgb * painted_lowland
-			+ grass_color.rgb * (painted_ground + painted_upper)
-			+ rock_color.rgb * (painted_rocky + painted_cliff)
-			+ snow_color.rgb * painted_snow;
-		color = mix(color, painted_color, paint_opacity);
-		roughness = mix(roughness, 0.86, paint_opacity);
-	}
-
-	if (material_mode == 1) {
-		float blend_softness = max(layer_blend_softness, 0.001);
-		vec3 tile_weights = macro_tile_weights();
-		float base_tile_scale = max(texture_tile_scale, 0.001);
-		vec2 close_uv = world_position.xz * max(close_texture_tile_scale, 0.001);
-		vec2 medium_uv = world_position.xz * (macro_texture_tiling_enabled ? max(medium_texture_tile_scale, 0.001) : base_tile_scale);
-		vec2 far_uv = world_position.xz * max(far_texture_tile_scale, 0.001);
-		float cliff_tile_scale = max(texture_tile_scale, 0.001) * 1.10;
-		float lowland_weight = 1.0 - soft_band(0.12, 0.28 + blend_softness, normalized_height);
-		float ground_weight = soft_band(0.12, 0.30 + blend_softness, normalized_height) * (1.0 - soft_band(0.58, 0.80 + blend_softness, normalized_height));
-		float upper_weight = soft_band(0.48, 0.78 + blend_softness, normalized_height) * (1.0 - rock_amount);
-		float rocky_weight = rock_amount * (1.0 - soft_band(0.72, 0.92, slope));
-		float cliff_weight = soft_band(max(0.0, rock_slope_threshold + 0.18), 0.88, slope);
-		float snow_weight = snow_amount;
-
-		float non_snow_weight = 1.0 - snow_weight;
-		lowland_weight *= non_snow_weight;
-		ground_weight *= non_snow_weight;
-		upper_weight *= non_snow_weight;
-		rocky_weight *= non_snow_weight;
-		cliff_weight *= non_snow_weight;
-
-		float far_cache_min_distance = max(far_texture_radius * 1.45, terrain_world_size * 0.34);
-		if (material_performance_preset >= 2) {
-			far_cache_min_distance = max(far_texture_radius * 1.05, terrain_world_size * 0.22);
-		}
-		float far_cache_horizontal_distance = distance(world_position.xz, texture_focus_position.xz);
-		float far_cache_tile_threshold = material_performance_preset >= 2 ? 0.92 : 0.97;
-		bool use_far_cache = far_material_cache_enabled && material_performance_preset > 0 && tile_weights.z > far_cache_tile_threshold && far_cache_horizontal_distance > far_cache_min_distance;
-		if (use_far_cache) {
-			color = texture(far_material_cache_texture, terrain_cache_uv()).rgb;
-			roughness = clamp(0.88 * roughness_multiplier, 0.04, 1.0);
-		} else {
-			bool use_height_blend = material_performance_preset == 0 || (material_performance_preset == 1 && tile_weights.x > 0.20);
-			if (use_height_blend) {
-				float lowland_height = sample_macro_bombed_scalar(lowland_height_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
-				float ground_height = sample_macro_bombed_scalar(ground_height_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
-				float upper_height = sample_macro_bombed_scalar(upper_height_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
-				float rocky_height = sample_macro_bombed_scalar(rocky_height_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
-				float cliff_height = sample_triplanar_scalar(cliff_height_texture, world_position, world_normal, cliff_tile_scale);
-				float snow_height_map = sample_macro_bombed_scalar(snow_height_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-				lowland_weight *= mix(1.0, lowland_height, height_blend_strength);
-				ground_weight *= mix(1.0, ground_height, height_blend_strength);
-				upper_weight *= mix(1.0, upper_height, height_blend_strength);
-				rocky_weight *= mix(1.0, rocky_height, height_blend_strength);
-				cliff_weight *= mix(1.0, cliff_height, height_blend_strength);
-				snow_weight *= mix(1.0, snow_height_map, height_blend_strength);
-			}
-
-			float total_weight = max(lowland_weight + ground_weight + upper_weight + rocky_weight + cliff_weight + snow_weight, 0.0001);
-			lowland_weight /= total_weight;
-			ground_weight /= total_weight;
-			upper_weight /= total_weight;
-			rocky_weight /= total_weight;
-			cliff_weight /= total_weight;
-			snow_weight /= total_weight;
-
-			bool use_painted_material = painted_total > 0.001;
-			float paint_opacity = clamp(painted_total, 0.0, 1.0);
-			float painted_lowland = 0.0;
-			float painted_ground = 0.0;
-			float painted_upper = 0.0;
-			float painted_rocky = 0.0;
-			float painted_cliff = 0.0;
-			float painted_snow = 0.0;
-			if (use_painted_material) {
-				float safe_painted_total = max(painted_total, 0.0001);
-				painted_lowland = painted_weights_rgba.r / safe_painted_total;
-				painted_ground = painted_weights_rgba.g / safe_painted_total;
-				painted_upper = painted_weights_rgba.b / safe_painted_total;
-				painted_rocky = painted_weights_rgba.a / safe_painted_total;
-				painted_cliff = painted_weights_uv2.x / safe_painted_total;
-				painted_snow = painted_weights_uv2.y / safe_painted_total;
-			}
-
-			vec3 lowland_albedo = sample_macro_bombed(lowland_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83).rgb;
-			vec3 ground_albedo = sample_macro_bombed(ground_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0).rgb;
-			vec3 upper_albedo = sample_macro_bombed(upper_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92).rgb;
-			vec3 rocky_albedo = sample_macro_bombed(rocky_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15).rgb;
-			vec3 cliff_albedo = sample_triplanar_albedo(cliff_albedo_texture, world_position, world_normal, cliff_tile_scale);
-			vec3 snow_albedo = sample_macro_bombed(snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
-			color = lowland_albedo * lowland_weight + ground_albedo * ground_weight + upper_albedo * upper_weight + rocky_albedo * rocky_weight + cliff_albedo * cliff_weight + snow_albedo * snow_weight;
-			bool use_painted_texture_material = use_painted_material && (material_performance_preset == 0 || tile_weights.z < 0.75);
-			if (use_painted_texture_material) {
-				vec3 paint_lowland_albedo = sample_macro_bombed(paint_lowland_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83).rgb;
-				vec3 paint_ground_albedo = sample_macro_bombed(paint_ground_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0).rgb;
-				vec3 paint_upper_albedo = sample_macro_bombed(paint_upper_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92).rgb;
-				vec3 paint_rocky_albedo = sample_macro_bombed(paint_rocky_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15).rgb;
-				vec3 paint_cliff_albedo = sample_triplanar_albedo(paint_cliff_albedo_texture, world_position, world_normal, cliff_tile_scale);
-				vec3 paint_snow_albedo = sample_macro_bombed(paint_snow_albedo_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72).rgb;
-				vec3 paint_color = paint_lowland_albedo * painted_lowland + paint_ground_albedo * painted_ground + paint_upper_albedo * painted_upper + paint_rocky_albedo * painted_rocky + paint_cliff_albedo * painted_cliff + paint_snow_albedo * painted_snow;
-				color = mix(color, paint_color, paint_opacity);
-			} else if (use_painted_material) {
-				vec3 paint_color = lowland_albedo * painted_lowland + ground_albedo * painted_ground + upper_albedo * painted_upper + rocky_albedo * painted_rocky + cliff_albedo * painted_cliff + snow_albedo * painted_snow;
-				color = mix(color, paint_color, paint_opacity);
-			}
-
-			bool use_surface_detail = material_performance_preset == 0 || (material_performance_preset == 1 && tile_weights.z < 0.70) || (material_performance_preset >= 2 && tile_weights.x > 0.92);
-			if (use_surface_detail) {
-				vec3 lowland_normal = sample_macro_bombed_normal(lowland_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
-				vec3 ground_normal = sample_macro_bombed_normal(ground_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
-				vec3 upper_normal = sample_macro_bombed_normal(upper_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
-				vec3 rocky_normal = sample_macro_bombed_normal(rocky_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
-				vec3 cliff_normal = sample_triplanar_normal(cliff_normal_texture, world_position, world_normal, cliff_tile_scale);
-				vec3 snow_normal = sample_macro_bombed_normal(snow_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-				vec3 procedural_normal = lowland_normal * lowland_weight + ground_normal * ground_weight + upper_normal * upper_weight + rocky_normal * rocky_weight + cliff_normal * cliff_weight + snow_normal * snow_weight;
-				NORMAL_MAP = procedural_normal;
-				if (use_painted_material) {
-					vec3 paint_lowland_normal = sample_macro_bombed_normal(paint_lowland_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
-					vec3 paint_ground_normal = sample_macro_bombed_normal(paint_ground_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
-					vec3 paint_upper_normal = sample_macro_bombed_normal(paint_upper_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
-					vec3 paint_rocky_normal = sample_macro_bombed_normal(paint_rocky_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
-					vec3 paint_cliff_normal = sample_triplanar_normal(paint_cliff_normal_texture, world_position, world_normal, cliff_tile_scale);
-					vec3 paint_snow_normal = sample_macro_bombed_normal(paint_snow_normal_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-					vec3 paint_normal = paint_lowland_normal * painted_lowland + paint_ground_normal * painted_ground + paint_upper_normal * painted_upper + paint_rocky_normal * painted_rocky + paint_cliff_normal * painted_cliff + paint_snow_normal * painted_snow;
-					NORMAL_MAP = mix(procedural_normal, paint_normal, paint_opacity);
-				}
-				NORMAL_MAP_DEPTH = texture_normal_strength;
-
-				float lowland_roughness = sample_macro_bombed_scalar(lowland_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
-				float ground_roughness = sample_macro_bombed_scalar(ground_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
-				float upper_roughness = sample_macro_bombed_scalar(upper_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
-				float rocky_roughness = sample_macro_bombed_scalar(rocky_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
-				float cliff_roughness = sample_triplanar_scalar(cliff_roughness_texture, world_position, world_normal, cliff_tile_scale);
-				float snow_roughness = sample_macro_bombed_scalar(snow_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-				float procedural_roughness = lowland_roughness * lowland_weight + ground_roughness * ground_weight + upper_roughness * upper_weight + rocky_roughness * rocky_weight + cliff_roughness * cliff_weight + snow_roughness * snow_weight;
-				roughness = procedural_roughness;
-				if (use_painted_material) {
-					float paint_lowland_roughness = sample_macro_bombed_scalar(paint_lowland_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.83);
-					float paint_ground_roughness = sample_macro_bombed_scalar(paint_ground_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.0);
-					float paint_upper_roughness = sample_macro_bombed_scalar(paint_upper_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.92);
-					float paint_rocky_roughness = sample_macro_bombed_scalar(paint_rocky_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 1.15);
-					float paint_cliff_roughness = sample_triplanar_scalar(paint_cliff_roughness_texture, world_position, world_normal, cliff_tile_scale);
-					float paint_snow_roughness = sample_macro_bombed_scalar(paint_snow_roughness_texture, tile_weights, close_uv, medium_uv, far_uv, 0.72);
-					float paint_roughness = paint_lowland_roughness * painted_lowland + paint_ground_roughness * painted_ground + paint_upper_roughness * painted_upper + paint_rocky_roughness * painted_rocky + paint_cliff_roughness * painted_cliff + paint_snow_roughness * painted_snow;
-					roughness = mix(procedural_roughness, paint_roughness, paint_opacity);
-				}
-				roughness = clamp(roughness * roughness_multiplier, 0.04, 1.0);
-			} else {
-				roughness = clamp(0.88 * roughness_multiplier, 0.04, 1.0);
-			}
-		}
-	}
-
-	ALBEDO = adjust_color(color);
-	ROUGHNESS = roughness;
-	SPECULAR = 0.18;
-}
-"
-
-[sub_resource type="Image" id="Image_eh20j"]
-data = {
-"data": PackedByteArray(61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255, 61, 84, 38, 255),
-"format": "RGBA8",
-"height": 4,
-"mipmaps": false,
-"width": 4
-}
-
-[sub_resource type="ImageTexture" id="ImageTexture_kwhfr"]
-image = SubResource("Image_eh20j")
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_c8vkb"]
-render_priority = 0
-shader = SubResource("Shader_5lmai")
-shader_parameter/use_procedural_detail = false
-shader_parameter/material_mode = 1
-shader_parameter/snow_enabled = false
-shader_parameter/lowland_layer_enabled = false
-shader_parameter/ground_layer_enabled = true
-shader_parameter/upper_layer_enabled = false
-shader_parameter/rocky_layer_enabled = true
-shader_parameter/cliff_layer_enabled = true
-shader_parameter/snow_layer_enabled = true
-shader_parameter/lowland_albedo_texture = ExtResource("8_tlri0")
-shader_parameter/lowland_normal_texture = ExtResource("10_8mvdg")
-shader_parameter/lowland_roughness_texture = ExtResource("11_nkoy4")
-shader_parameter/lowland_height_texture = ExtResource("9_gqiyv")
-shader_parameter/ground_albedo_texture = ExtResource("17_kqcrt")
-shader_parameter/ground_normal_texture = ExtResource("19_ugwg7")
-shader_parameter/ground_roughness_texture = ExtResource("20_uhi6s")
-shader_parameter/ground_height_texture = ExtResource("18_qmokn")
-shader_parameter/upper_albedo_texture = ExtResource("2_c8vkb")
-shader_parameter/upper_normal_texture = ExtResource("4_km85j")
-shader_parameter/upper_roughness_texture = ExtResource("5_p52qv")
-shader_parameter/upper_height_texture = ExtResource("3_mfq7f")
-shader_parameter/rocky_albedo_texture = ExtResource("21_g1u7f")
-shader_parameter/rocky_normal_texture = ExtResource("23_occn5")
-shader_parameter/rocky_roughness_texture = ExtResource("24_6pmsk")
-shader_parameter/rocky_height_texture = ExtResource("22_k4ueo")
-shader_parameter/cliff_albedo_texture = ExtResource("21_g1u7f")
-shader_parameter/cliff_normal_texture = ExtResource("23_occn5")
-shader_parameter/cliff_roughness_texture = ExtResource("24_6pmsk")
-shader_parameter/cliff_height_texture = ExtResource("22_k4ueo")
-shader_parameter/snow_albedo_texture = ExtResource("21_g1u7f")
-shader_parameter/snow_normal_texture = ExtResource("23_occn5")
-shader_parameter/snow_roughness_texture = ExtResource("24_6pmsk")
-shader_parameter/snow_height_texture = ExtResource("22_k4ueo")
-shader_parameter/paint_lowland_albedo_texture = ExtResource("12_4rx86")
-shader_parameter/paint_lowland_normal_texture = ExtResource("14_ndgvp")
-shader_parameter/paint_lowland_roughness_texture = ExtResource("15_u6ysu")
-shader_parameter/paint_lowland_height_texture = ExtResource("13_22nnt")
-shader_parameter/paint_ground_albedo_texture = ExtResource("8_tlri0")
-shader_parameter/paint_ground_normal_texture = ExtResource("10_8mvdg")
-shader_parameter/paint_ground_roughness_texture = ExtResource("11_nkoy4")
-shader_parameter/paint_ground_height_texture = ExtResource("9_gqiyv")
-shader_parameter/paint_upper_albedo_texture = ExtResource("25_h61sf")
-shader_parameter/paint_upper_normal_texture = ExtResource("27_wruot")
-shader_parameter/paint_upper_roughness_texture = ExtResource("28_6u4no")
-shader_parameter/paint_upper_height_texture = ExtResource("26_v2vv5")
-shader_parameter/paint_rocky_albedo_texture = ExtResource("17_kqcrt")
-shader_parameter/paint_rocky_normal_texture = ExtResource("19_ugwg7")
-shader_parameter/paint_rocky_roughness_texture = ExtResource("20_uhi6s")
-shader_parameter/paint_rocky_height_texture = ExtResource("18_qmokn")
-shader_parameter/paint_cliff_albedo_texture = ExtResource("2_c8vkb")
-shader_parameter/paint_cliff_normal_texture = ExtResource("4_km85j")
-shader_parameter/paint_cliff_roughness_texture = ExtResource("5_p52qv")
-shader_parameter/paint_cliff_height_texture = ExtResource("3_mfq7f")
-shader_parameter/paint_snow_albedo_texture = ExtResource("21_g1u7f")
-shader_parameter/paint_snow_normal_texture = ExtResource("23_occn5")
-shader_parameter/paint_snow_roughness_texture = ExtResource("24_6pmsk")
-shader_parameter/paint_snow_height_texture = ExtResource("22_k4ueo")
-shader_parameter/lowland_color = Color(0.15, 0.21, 0.09, 1)
-shader_parameter/grass_color = Color(0.24, 0.33, 0.15, 1)
-shader_parameter/rock_color = Color(0.27, 0.24, 0.18, 1)
-shader_parameter/snow_color = Color(0.86, 0.84, 0.76, 1)
-shader_parameter/height_scale = 14.8
-shader_parameter/snow_height = 11.0
-shader_parameter/rock_slope_threshold = 0.24
-shader_parameter/texture_tile_scale = 0.3
-shader_parameter/macro_texture_tiling_enabled = true
-shader_parameter/texture_focus_position = Vector3(20.275782, 40.654984, -55.90144)
-shader_parameter/close_texture_tile_scale = 0.36
-shader_parameter/medium_texture_tile_scale = 0.02
-shader_parameter/far_texture_tile_scale = 0.01
-shader_parameter/close_texture_radius = 24.0
-shader_parameter/medium_texture_radius = 64.0
-shader_parameter/far_texture_radius = 92.0
-shader_parameter/layer_blend_softness = 0.18
-shader_parameter/texture_normal_strength = 0.75
-shader_parameter/roughness_multiplier = 1.0
-shader_parameter/height_blend_strength = 0.12
-shader_parameter/texture_bombing_enabled = true
-shader_parameter/texture_bombing_strength = 0.55
-shader_parameter/texture_bombing_cell_scale = 0.65
-shader_parameter/texture_bombing_samples = 2
-shader_parameter/material_performance_preset = 2
-shader_parameter/far_material_cache_enabled = false
-shader_parameter/far_material_cache_texture = SubResource("ImageTexture_kwhfr")
-shader_parameter/terrain_world_size = 256.0
-shader_parameter/macro_variation_strength = 0.18
-shader_parameter/macro_variation_scale = 0.04
-shader_parameter/detail_noise_strength = 0.15
-shader_parameter/detail_noise_scale = 0.45
-shader_parameter/rock_detail_strength = 0.25
-shader_parameter/snow_detail_strength = 0.08
-shader_parameter/material_brightness = 1.2
-shader_parameter/material_contrast = 1.1
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_0b85x"]
 radius = 0.35
@@ -673,46 +67,25 @@ rock_slope_threshold = 0.24
 texture_tile_scale = 0.3
 close_texture_tile_scale = 0.36
 medium_texture_tile_scale = 0.02
-medium_texture_radius = 64.0
+far_texture_radius = 512.0
 material_contrast = 1.1
 bake_preset = 3
 final_terrain_locked = true
-visible_radius = 192.0
-editor_brush_enabled = true
-editor_brush_mode = 2
+editor_brush_mode = 3
+sculpt_radius = 10.0
+sculpt_strength = 0.5
+sculpt_target_height = 10.0
+paint_enabled = true
 paint_layer = 5
 paint_strength = 0.31
 scatter_layer = SubResource("BoxShape3D_eh20j")
 
-[node name="TerrainChunks" type="Node3D" parent="Terrain" unique_id=1807881365]
+[node name="TerrainChunks" type="Node3D" parent="Terrain" unique_id=117473819]
 
-[node name="TerrainChunk_02_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1634903263]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_03_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=503470310]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("26_5lmai")
-metadata/terrain_chunk_center = Vector2(32, -96)
-metadata/terrain_chunk_x = 2
-metadata/terrain_chunk_z = 0
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_00_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_00_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_00_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_00_lod3_mesh.res"
-metadata/terrain_current_lod = 3
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_00.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00" unique_id=787861487]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00/CollisionBody" unique_id=979668571]
-visible = false
-shape = ExtResource("4_eb4h2")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_03_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=2067265632]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("4_sbnts")
+mesh = ExtResource("3_eb4h2")
 metadata/terrain_chunk_center = Vector2(96, -96)
 metadata/terrain_chunk_x = 3
 metadata/terrain_chunk_z = 0
@@ -721,44 +94,22 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_00_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_00_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_00_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_00_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_00.tres"
+metadata/terrain_current_lod = 3
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00" unique_id=1050733895]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00" unique_id=1065403276]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00/CollisionBody" unique_id=153096722]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_00/CollisionBody" unique_id=325681927]
 visible = false
 shape = ExtResource("6_xcved")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_01_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=211247115]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_00_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=773706349]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("30_eh20j")
-metadata/terrain_chunk_center = Vector2(-32, -96)
-metadata/terrain_chunk_x = 1
-metadata/terrain_chunk_z = 0
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_00_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_00_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_00_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_00_lod3_mesh.res"
-metadata/terrain_current_lod = 3
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_01_00.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00" unique_id=1242850865]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00/CollisionBody" unique_id=328580565]
-visible = false
-shape = ExtResource("8_k2kxt")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_00_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=2123799973]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("6_khl5b")
+mesh = ExtResource("9_xcved")
 metadata/terrain_chunk_center = Vector2(-96, -96)
 metadata/terrain_chunk_x = 0
 metadata/terrain_chunk_z = 0
@@ -767,90 +118,70 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_00_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_00_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_00_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_00_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_00_00.tres"
+metadata/terrain_current_lod = 3
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00" unique_id=972634726]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00" unique_id=2002917368]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00/CollisionBody" unique_id=1739139889]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_00/CollisionBody" unique_id=434028148]
 visible = false
 shape = ExtResource("10_jnibw")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_00_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1645933929]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_02_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1306450532]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("34_kwhfr")
-metadata/terrain_chunk_center = Vector2(-96, -32)
-metadata/terrain_chunk_x = 0
-metadata/terrain_chunk_z = 1
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_01_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_01_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_01_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_01_lod3_mesh.res"
-metadata/terrain_current_lod = 3
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_00_01.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01" unique_id=537561385]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01/CollisionBody" unique_id=49313154]
-visible = false
-shape = ExtResource("12_70gyd")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_03_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1417950153]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("36_c8vkb")
-metadata/terrain_chunk_center = Vector2(96, -32)
-metadata/terrain_chunk_x = 3
-metadata/terrain_chunk_z = 1
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_01_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_01_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_01_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_01_lod3_mesh.res"
-metadata/terrain_current_lod = 3
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_01.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01" unique_id=812912936]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01/CollisionBody" unique_id=903905860]
-visible = false
-shape = ExtResource("14_so1nq")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_02_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1788060221]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("38_mfq7f")
-metadata/terrain_chunk_center = Vector2(32, -32)
+mesh = ExtResource("5_xcved")
+metadata/terrain_chunk_center = Vector2(32, -96)
 metadata/terrain_chunk_x = 2
-metadata/terrain_chunk_z = 1
+metadata/terrain_chunk_z = 0
 metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_01_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_01_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_01_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_01_lod3_mesh.res"
-metadata/terrain_current_lod = 2
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_01.tres"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_00_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_00.tres"
+metadata/terrain_current_lod = 1
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01" unique_id=1743119739]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00" unique_id=1833283423]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01/CollisionBody" unique_id=1739709269]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_00/CollisionBody" unique_id=43894545]
 visible = false
-shape = ExtResource("16_gicl6")
+shape = ExtResource("4_eb4h2")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_01_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=489291567]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_01_00" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1736387465]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("40_km85j")
+mesh = ExtResource("7_k2kxt")
+metadata/terrain_chunk_center = Vector2(-32, -96)
+metadata/terrain_chunk_x = 1
+metadata/terrain_chunk_z = 0
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_00_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_00_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_00_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_00_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_01_00.tres"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00" unique_id=664404946]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_00/CollisionBody" unique_id=2088121179]
+visible = false
+shape = ExtResource("8_k2kxt")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_01_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=202937637]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("15_gicl6")
 metadata/terrain_chunk_center = Vector2(-32, -32)
 metadata/terrain_chunk_x = 1
 metadata/terrain_chunk_z = 1
@@ -859,21 +190,94 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_01_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_01_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_01_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_01_lod3_mesh.res"
-metadata/terrain_current_lod = 2
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_01_01.tres"
+metadata/terrain_current_lod = 0
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01" unique_id=1408253478]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01" unique_id=1653320926]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01/CollisionBody" unique_id=1756403532]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_01/CollisionBody" unique_id=604803172]
 visible = false
 shape = ExtResource("18_hjkoc")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_00_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=819434740]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_00_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=137167752]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("42_p52qv")
+mesh = ExtResource("17_hjkoc")
+metadata/terrain_chunk_center = Vector2(-96, -32)
+metadata/terrain_chunk_x = 0
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_01_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_00_01.tres"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01" unique_id=1192744836]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_01/CollisionBody" unique_id=691505438]
+visible = false
+shape = ExtResource("12_70gyd")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_03_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=240239185]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("11_70gyd")
+metadata/terrain_chunk_center = Vector2(96, -32)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_01_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_01.tres"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01" unique_id=1649895775]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_01/CollisionBody" unique_id=1626551321]
+visible = false
+shape = ExtResource("14_so1nq")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_02_01" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=29790715]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("13_so1nq")
+metadata/terrain_chunk_center = Vector2(32, -32)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 1
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_01_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_01_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_01_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_01_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_01.tres"
+metadata/terrain_current_lod = 0
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01" unique_id=1168510724]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_01/CollisionBody" unique_id=796786075]
+visible = false
+shape = ExtResource("16_gicl6")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_00_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=2123075322]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("19_7xie7")
 metadata/terrain_chunk_center = Vector2(-96, 32)
 metadata/terrain_chunk_x = 0
 metadata/terrain_chunk_z = 2
@@ -882,67 +286,22 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_02_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_02_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_02_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_02_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_00_02.tres"
+metadata/terrain_current_lod = 1
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02" unique_id=1952200814]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02" unique_id=1957019103]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02/CollisionBody" unique_id=1846352872]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_02/CollisionBody" unique_id=1183037397]
 visible = false
 shape = ExtResource("20_7xie7")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_03_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1738938187]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_01_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=976690923]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("44_gei7y")
-metadata/terrain_chunk_center = Vector2(96, 32)
-metadata/terrain_chunk_x = 3
-metadata/terrain_chunk_z = 2
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_02_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_02_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_02_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_02_lod3_mesh.res"
-metadata/terrain_current_lod = 3
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_02.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02" unique_id=1248099543]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02/CollisionBody" unique_id=1753326211]
-visible = false
-shape = ExtResource("22_m7wr8")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_02_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1641900556]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("46_a5uf7")
-metadata/terrain_chunk_center = Vector2(32, 32)
-metadata/terrain_chunk_x = 2
-metadata/terrain_chunk_z = 2
-metadata/terrain_material_encoding = "v5_masks"
-metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_02_mesh.res"
-metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_02_lod1_mesh.res"
-metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_02_lod2_mesh.res"
-metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_02_lod3_mesh.res"
-metadata/terrain_current_lod = 2
-metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_02.tres"
-
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02" unique_id=1437543522]
-visible = false
-
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02/CollisionBody" unique_id=455337957]
-visible = false
-shape = ExtResource("24_7odr0")
-metadata/terrain_collision_quality = 1
-
-[node name="TerrainChunk_01_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=221726253]
-material_override = SubResource("ShaderMaterial_c8vkb")
-cast_shadow = 0
-mesh = ExtResource("48_tlri0")
+mesh = ExtResource("25_feoca")
 metadata/terrain_chunk_center = Vector2(-32, 32)
 metadata/terrain_chunk_x = 1
 metadata/terrain_chunk_z = 2
@@ -951,21 +310,70 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_02_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_02_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_02_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_02_lod3_mesh.res"
-metadata/terrain_current_lod = 2
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_01_02.tres"
+metadata/terrain_current_lod = 0
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02" unique_id=1900496227]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02" unique_id=1235744820]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02/CollisionBody" unique_id=1616455488]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_02/CollisionBody" unique_id=1146427023]
 visible = false
 shape = ExtResource("26_feoca")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_00_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=944389371]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_02_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1610657110]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("50_gqiyv")
+mesh = ExtResource("21_m7wr8")
+metadata/terrain_chunk_center = Vector2(32, 32)
+metadata/terrain_chunk_x = 2
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_02_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_02.tres"
+metadata/terrain_current_lod = 0
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02" unique_id=1724617640]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_02/CollisionBody" unique_id=817671030]
+visible = false
+shape = ExtResource("24_7odr0")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_03_02" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1788297122]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("23_7odr0")
+metadata/terrain_chunk_center = Vector2(96, 32)
+metadata/terrain_chunk_x = 3
+metadata/terrain_chunk_z = 2
+metadata/terrain_material_encoding = "v5_masks"
+metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_02_mesh.res"
+metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_02_lod1_mesh.res"
+metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_02_lod2_mesh.res"
+metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_02_lod3_mesh.res"
+metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_02.tres"
+metadata/terrain_current_lod = 1
+
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02" unique_id=398052771]
+visible = false
+
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_02/CollisionBody" unique_id=933477266]
+visible = false
+shape = ExtResource("22_m7wr8")
+metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
+
+[node name="TerrainChunk_00_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1846297914]
+material_override = ExtResource("2_eb4h2")
+cast_shadow = 0
+mesh = ExtResource("27_k2kxt")
 metadata/terrain_chunk_center = Vector2(-96, 96)
 metadata/terrain_chunk_x = 0
 metadata/terrain_chunk_z = 3
@@ -974,21 +382,22 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_00_03_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_00_03_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_00_03_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_00_03_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_00_03.tres"
+metadata/terrain_current_lod = 3
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03" unique_id=1566133208]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03" unique_id=1878280840]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03/CollisionBody" unique_id=12056195]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_00_03/CollisionBody" unique_id=1879944923]
 visible = false
 shape = ExtResource("28_hjw85")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_01_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1017833795]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_01_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1820006947]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("52_8mvdg")
+mesh = ExtResource("29_68hcs")
 metadata/terrain_chunk_center = Vector2(-32, 96)
 metadata/terrain_chunk_x = 1
 metadata/terrain_chunk_z = 3
@@ -997,21 +406,22 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_01_03_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_01_03_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_01_03_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_01_03_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_01_03.tres"
+metadata/terrain_current_lod = 1
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03" unique_id=1325650732]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03" unique_id=1741174066]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03/CollisionBody" unique_id=1167089145]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_01_03/CollisionBody" unique_id=663900189]
 visible = false
 shape = ExtResource("30_68hcs")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_03_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1651373739]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_03_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1588807600]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("54_nkoy4")
+mesh = ExtResource("31_jnibw")
 metadata/terrain_chunk_center = Vector2(96, 96)
 metadata/terrain_chunk_x = 3
 metadata/terrain_chunk_z = 3
@@ -1020,21 +430,22 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_03_03_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_03_03_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_03_03_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_03_03_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_03_03.tres"
+metadata/terrain_current_lod = 3
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03" unique_id=1818435744]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03" unique_id=2074949304]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03/CollisionBody" unique_id=1387325533]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_03_03/CollisionBody" unique_id=406807904]
 visible = false
 shape = ExtResource("32_iv38u")
 metadata/terrain_collision_quality = 1
+metadata/terrain_sculpt_revision = 0
 
-[node name="TerrainChunk_02_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=902381232]
-material_override = SubResource("ShaderMaterial_c8vkb")
+[node name="TerrainChunk_02_03" type="MeshInstance3D" parent="Terrain/TerrainChunks" unique_id=1725938377]
+material_override = ExtResource("2_eb4h2")
 cast_shadow = 0
-mesh = ExtResource("56_4rx86")
+mesh = ExtResource("31_iv38u")
 metadata/terrain_chunk_center = Vector2(32, 96)
 metadata/terrain_chunk_x = 2
 metadata/terrain_chunk_z = 3
@@ -1043,21 +454,20 @@ metadata/terrain_lod_0_path = "res://generated_terrain/TerrainChunk_02_03_mesh.r
 metadata/terrain_lod_1_path = "res://generated_terrain/TerrainChunk_02_03_lod1_mesh.res"
 metadata/terrain_lod_2_path = "res://generated_terrain/TerrainChunk_02_03_lod2_mesh.res"
 metadata/terrain_lod_3_path = "res://generated_terrain/TerrainChunk_02_03_lod3_mesh.res"
-metadata/terrain_current_lod = 3
 metadata/terrain_region_data_path = "res://generated_terrain/regions/TerrainRegion_02_03.tres"
+metadata/terrain_current_lod = 1
 
-[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03" unique_id=982888127]
+[node name="CollisionBody" type="StaticBody3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03" unique_id=309334388]
 visible = false
 
-[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03/CollisionBody" unique_id=1915117133]
+[node name="CollisionShape" type="CollisionShape3D" parent="Terrain/TerrainChunks/TerrainChunk_02_03/CollisionBody" unique_id=840015045]
 visible = false
 shape = ExtResource("34_l7tmf")
 metadata/terrain_collision_quality = 1
-
-[node name="TerrainScatter" type="Node3D" parent="Terrain" unique_id=1156791426]
+metadata/terrain_sculpt_revision = 0
 
 [node name="Player" type="CharacterBody3D" parent="." unique_id=2087585995]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 18, 0)
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 18, 0)
 script = ExtResource("2_bm88o")
 move_speed = 20.0
 jump_velocity = 20.0

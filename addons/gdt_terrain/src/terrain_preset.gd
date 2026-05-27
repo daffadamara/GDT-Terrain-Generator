@@ -119,6 +119,15 @@ class_name TerrainPreset
 @export var editor_brush_mode := 0
 @export var editor_brush_spacing := 0.16
 
+@export_group("Sculpt Brush")
+@export var sculpt_enabled := true
+@export var sculpt_radius := 4.0
+@export var sculpt_strength := 0.25
+@export var sculpt_softness := 0.5
+@export var sculpt_target_height := 0.0
+@export var sculpt_brush_mask := 0
+@export var sculpt_custom_brush_mask: Texture2D
+
 @export_group("Material Paint")
 @export var paint_enabled := false
 @export var paint_layer := 1

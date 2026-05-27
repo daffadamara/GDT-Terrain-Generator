@@ -123,6 +123,15 @@ float soft_band(float edge0, float edge1, float value) {
 	return x * x * (3.0 - 2.0 * x);
 }
 
+float snow_surface_amount(float terrain_height_value, float terrain_slope_value) {
+	float snow_blend_width = max(height_scale * 0.12, 0.35);
+	float height_snow = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height_value) : 0.0;
+	float slope_start = max(0.30, rock_slope_threshold * 0.75);
+	float slope_end = min(0.82, rock_slope_threshold + 0.25);
+	float stable_surface = 1.0 - soft_band(slope_start, slope_end, terrain_slope_value);
+	return height_snow * stable_surface;
+}
+
 vec3 adjust_color(vec3 color) {
 	color *= material_brightness;
 	color = (color - vec3(0.5)) * material_contrast + vec3(0.5);
@@ -299,8 +308,7 @@ void fragment() {
 	vec3 color = mix(lowland_color.rgb, grass_color.rgb, soft_band(0.20, 0.78, normalized_height));
 
 	float rock_amount = soft_band(rock_slope_threshold, min(1.0, rock_slope_threshold + 0.25), slope);
-	float snow_blend_width = max(height_scale * 0.12, 0.35);
-	float snow_amount = snow_enabled ? soft_band(snow_height - snow_blend_width, snow_height + snow_blend_width, terrain_height) : 0.0;
+	float snow_amount = snow_surface_amount(terrain_height, slope);
 
 	if (use_procedural_detail && material_mode != 1) {
 		float macro_noise = texture(macro_noise_texture, world_position.xz * macro_variation_scale).r * 2.0 - 1.0;
@@ -1022,8 +1030,7 @@ func _far_cache_color_for_sample(
 	var normalized_height := clampf((height / height_range + 1.0) * 0.5, 0.0, 1.0)
 	var slope := clampf(1.0 - normal.y, 0.0, 1.0)
 	var rock_amount := _smoothstep(rock_slope_threshold, minf(1.0, rock_slope_threshold + 0.25), slope)
-	var snow_blend_width := maxf(height_scale * 0.12, 0.35)
-	var snow_amount := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height) if snow_enabled else 0.0
+	var snow_amount := _snow_surface_amount(height, slope)
 	var blend_softness := maxf(layer_blend_softness, 0.001)
 
 	var lowland_weight := 1.0 - _smoothstep(0.12, 0.28 + blend_softness, normalized_height)
@@ -1121,6 +1128,17 @@ func _smoothstep(edge0: float, edge1: float, value: float) -> float:
 		return 0.0
 	var x := clampf((value - edge0) / (edge1 - edge0), 0.0, 1.0)
 	return x * x * (3.0 - 2.0 * x)
+
+
+func _snow_surface_amount(height: float, slope: float) -> float:
+	if not snow_enabled:
+		return 0.0
+	var snow_blend_width := maxf(height_scale * 0.12, 0.35)
+	var height_snow := _smoothstep(snow_height - snow_blend_width, snow_height + snow_blend_width, height)
+	var slope_start := maxf(0.30, rock_slope_threshold * 0.75)
+	var slope_end := minf(0.82, rock_slope_threshold + 0.25)
+	var stable_surface := 1.0 - _smoothstep(slope_start, slope_end, slope)
+	return height_snow * stable_surface
 
 
 func _create_noise_texture(noise_seed: int, texture_frequency: float, texture_size: int) -> ImageTexture:

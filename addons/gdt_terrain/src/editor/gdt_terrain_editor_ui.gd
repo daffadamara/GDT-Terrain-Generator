@@ -9,6 +9,11 @@ const TOOL_NONE := -1
 const TOOL_PAINT := 0
 const TOOL_SCATTER_ADD := 1
 const TOOL_SCATTER_ERASE := 2
+const TOOL_SCULPT_RAISE := 3
+const TOOL_SCULPT_LOWER := 4
+const TOOL_SCULPT_SMOOTH := 5
+const TOOL_SCULPT_HEIGHT := 6
+const TOOL_SCULPT_SLOPE := 7
 
 const ACTION_GENERATE_PREVIEW := 0
 const ACTION_GENERATE_FINAL := 1
@@ -28,9 +33,18 @@ const ACTION_GENERATE_SCATTER := 14
 const ACTION_CLEAR_SCATTER := 15
 const ACTION_PRINT_PERFORMANCE_SUMMARY := 16
 const ACTION_SETUP_FOCUS_CAMERA := 17
+const ACTION_SETUP_NAVIGATION := 18
+const ACTION_BAKE_NAVIGATION_MESH := 19
+const ACTION_BAKE_OCCLUDER := 20
+const ACTION_CLEAR_SCULPTED_HEIGHTS := 21
+const ACTION_EXPORT_SCULPTED_HEIGHTMAP := 22
+const ACTION_REBUILD_SCULPTED_CHUNKS := 23
+const ACTION_PICK_SCULPT_HEIGHT := 24
+const ACTION_CLEAR_SCULPT_SLOPE := 25
 
 const PAINT_LAYERS := ["Lowland", "Ground", "Upper", "Rocky", "Cliff", "Snow"]
 const PAINT_MODES := ["Add", "Subtract", "Smooth"]
+const SCULPT_MASKS := ["Soft Circle", "Hard Circle", "Noise", "Ridge", "Custom"]
 const ACTIONS_REQUIRING_TERRAIN := [
 	ACTION_SAVE_MESH_RESOURCES,
 	ACTION_GENERATE_COLLISION,
@@ -38,8 +52,13 @@ const ACTIONS_REQUIRING_TERRAIN := [
 	ACTION_REVEAL_ALL_CHUNKS,
 	ACTION_REBUILD_REGION_DATA,
 	ACTION_CLEAR_PAINTED_MASKS,
+	ACTION_CLEAR_SCULPTED_HEIGHTS,
+	ACTION_EXPORT_SCULPTED_HEIGHTMAP,
+	ACTION_REBUILD_SCULPTED_CHUNKS,
 	ACTION_GENERATE_SCATTER,
 	ACTION_CLEAR_SCATTER,
+	ACTION_BAKE_NAVIGATION_MESH,
+	ACTION_BAKE_OCCLUDER,
 	ACTION_PRINT_PERFORMANCE_SUMMARY,
 ]
 
@@ -156,11 +175,17 @@ func _create_menu() -> void:
 	_add_menu_item(popup, "Save Mesh Resources", ACTION_SAVE_MESH_RESOURCES, ["MeshInstance3D", "Save"])
 	_add_menu_item(popup, "Setup Preview Lighting", ACTION_SETUP_PREVIEW_LIGHTING, ["DirectionalLight3D", "Light"])
 	_add_menu_item(popup, "Setup Focus Camera", ACTION_SETUP_FOCUS_CAMERA, ["Camera3D", "Camera"])
+	_add_menu_item(popup, "Setup Navigation", ACTION_SETUP_NAVIGATION, ["NavigationRegion3D", "Navigation3D"])
+	_add_menu_item(popup, "Bake Navigation Mesh", ACTION_BAKE_NAVIGATION_MESH, ["NavigationMesh", "Bake"])
+	_add_menu_item(popup, "Bake Occluder", ACTION_BAKE_OCCLUDER, ["OccluderInstance3D", "Bake"])
 	_add_menu_item(popup, "Generate Collision", ACTION_GENERATE_COLLISION, ["CollisionShape3D"])
 	_add_menu_item(popup, "Remove Collision", ACTION_REMOVE_COLLISION, ["CollisionShape3D", "Remove"])
 	_add_menu_item(popup, "Reveal All Chunks", ACTION_REVEAL_ALL_CHUNKS, ["GuiVisibilityVisible", "Show"])
 	_add_menu_item(popup, "Rebuild Region Data", ACTION_REBUILD_REGION_DATA, ["ResourcePreloader", "Reload"])
 	_add_menu_item(popup, "Clear Painted Masks", ACTION_CLEAR_PAINTED_MASKS, ["CanvasItem", "Clear"])
+	_add_menu_item(popup, "Clear Sculpted Heights", ACTION_CLEAR_SCULPTED_HEIGHTS, ["Curve", "Clear"])
+	_add_menu_item(popup, "Export Sculpted Heightmap", ACTION_EXPORT_SCULPTED_HEIGHTMAP, ["ImageTexture", "Save"])
+	_add_menu_item(popup, "Rebuild Sculpted Chunks", ACTION_REBUILD_SCULPTED_CHUNKS, ["MeshInstance3D", "Reload"])
 	_add_menu_item(popup, "Generate Scatter", ACTION_GENERATE_SCATTER, ["MultiMeshInstance3D", "MeshInstance3D"])
 	_add_menu_item(popup, "Clear Scatter", ACTION_CLEAR_SCATTER, ["MultiMeshInstance3D", "Remove"])
 	popup.add_separator()
@@ -173,6 +198,12 @@ func _create_toolbar() -> void:
 	_toolbar.custom_minimum_size = Vector2(96.0, 0.0)
 	_toolbar.add_theme_constant_override("separation", 6)
 	_add_tool_button(TOOL_NONE, "Select", "Select or move terrain without painting", ["ToolSelect", "Cursor"])
+	_toolbar.add_child(HSeparator.new())
+	_add_tool_button(TOOL_SCULPT_RAISE, "Raise", "Raise terrain height", ["CurveCreate", "MoveUp"])
+	_add_tool_button(TOOL_SCULPT_LOWER, "Lower", "Lower terrain height", ["CurveDelete", "MoveDown"])
+	_add_tool_button(TOOL_SCULPT_SMOOTH, "Smooth", "Smooth terrain height", ["Curve", "Smooth"])
+	_add_tool_button(TOOL_SCULPT_HEIGHT, "Height", "Blend terrain toward a target height", ["Anchor", "Pin"])
+	_add_tool_button(TOOL_SCULPT_SLOPE, "Slope", "Create a two-point terrain ramp", ["Path3D", "Curve"])
 	_toolbar.add_child(HSeparator.new())
 	_add_tool_button(TOOL_PAINT, "Paint", "Paint material layers", ["CanvasItem", "Edit"])
 	_add_tool_button(TOOL_SCATTER_ADD, "Add", "Add scatter instances", ["MultiMeshInstance3D", "MeshInstance3D"])
@@ -245,6 +276,7 @@ func _refresh_menu_state() -> void:
 		_set_menu_item_disabled(popup, action_id, not has_terrain or not has_generated)
 	_set_menu_item_disabled(popup, ACTION_SETUP_PREVIEW_LIGHTING, not has_terrain)
 	_set_menu_item_disabled(popup, ACTION_SETUP_FOCUS_CAMERA, not has_terrain)
+	_set_menu_item_disabled(popup, ACTION_SETUP_NAVIGATION, not has_terrain)
 	_set_menu_item_disabled(popup, ACTION_SAVE_PRESET, not has_terrain)
 	_set_menu_item_disabled(popup, ACTION_LOAD_PRESET, not has_terrain)
 	_set_menu_item_disabled(popup, ACTION_EXPORT_HEIGHTMAP, not has_terrain)
@@ -271,6 +303,25 @@ func _rebuild_settings() -> void:
 		return
 
 	match int(_terrain.editor_brush_mode):
+		TOOL_SCULPT_RAISE:
+			title.text = "Sculpt Raise"
+			_add_sculpt_shared_settings()
+		TOOL_SCULPT_LOWER:
+			title.text = "Sculpt Lower"
+			_add_sculpt_shared_settings()
+		TOOL_SCULPT_SMOOTH:
+			title.text = "Sculpt Smooth"
+			_add_sculpt_shared_settings()
+		TOOL_SCULPT_HEIGHT:
+			title.text = "Sculpt Height"
+			_add_sculpt_shared_settings()
+			_add_number_setting("Target", "sculpt_target_height", -4096.0, 4096.0, 0.01)
+			_add_action_button("Pick", ACTION_PICK_SCULPT_HEIGHT, "Use the next terrain click as the target height.")
+		TOOL_SCULPT_SLOPE:
+			title.text = "Sculpt Slope"
+			_add_sculpt_shared_settings()
+			_add_action_button("Clear", ACTION_CLEAR_SCULPT_SLOPE, "Clear the stored slope points.")
+			_add_slope_readout()
 		TOOL_PAINT:
 			title.text = "Material Paint"
 			_add_option_setting("Layer", "paint_layer", PAINT_LAYERS)
@@ -291,6 +342,36 @@ func _rebuild_settings() -> void:
 			_add_number_setting("Radius", "scatter_brush_radius", 0.01, 256.0, 0.01)
 			_add_number_setting("Strength", "scatter_brush_strength", 0.0, 1.0, 0.01)
 			_add_number_setting("Spacing", "editor_brush_spacing", 0.01, 1.0, 0.01)
+
+
+func _add_sculpt_shared_settings() -> void:
+	_add_number_setting("Radius", "sculpt_radius", 0.01, 256.0, 0.01)
+	_add_number_setting("Strength", "sculpt_strength", 0.0, 8.0, 0.01)
+	_add_number_setting("Softness", "sculpt_softness", 0.0, 1.0, 0.01)
+	_add_number_setting("Spacing", "editor_brush_spacing", 0.01, 1.0, 0.01)
+	_add_option_setting("Mask", "sculpt_brush_mask", SCULPT_MASKS)
+
+
+func _add_action_button(text: String, action_id: int, tooltip: String) -> void:
+	var button := Button.new()
+	button.text = text
+	button.tooltip_text = tooltip
+	button.pressed.connect(func(): action_requested.emit(action_id))
+	_settings_row.add_child(button)
+
+
+func _add_slope_readout() -> void:
+	var label := Label.new()
+	label.text = "Points"
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_settings_row.add_child(label)
+
+	var value := Label.new()
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value.custom_minimum_size = Vector2(144.0, 0.0)
+	value.text = "Click start point"
+	value.tooltip_text = "Click once on the terrain to set the slope start, then click a second point to apply the ramp."
+	_settings_row.add_child(value)
 
 
 func _add_option_setting(label_text: String, property_name: StringName, values: Array) -> void:

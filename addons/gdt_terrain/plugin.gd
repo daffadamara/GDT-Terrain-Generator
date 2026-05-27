@@ -2,11 +2,14 @@
 extends EditorPlugin
 
 const TERRAIN_TYPE_NAME := "GdtTerrain3D"
+const QUERY_TYPE_NAME := "GdtTerrainQuery"
 const TERRAIN_BASE_TYPE := "Node3D"
+const QUERY_BASE_TYPE := "Node3D"
 const TERRAIN_SCRIPT := preload("res://addons/gdt_terrain/src/gdt_terrain_3d.gd")
+const QUERY_SCRIPT := preload("res://addons/gdt_terrain/src/gdt_terrain_query.gd")
 const EDITOR_UI_SCRIPT := preload("res://addons/gdt_terrain/src/editor/gdt_terrain_editor_ui.gd")
 const BRUSH_PREVIEW_NAME := "_GdtTerrainBrushPreview"
-const BRUSH_SEGMENTS := 96
+const BRUSH_SEGMENTS := 72
 const MAX_STAMPS_PER_MOTION := 8
 
 var _edited_terrain
@@ -16,11 +19,14 @@ var _brush_material: StandardMaterial3D
 var _brush_pressed := false
 var _last_stamp_position := Vector3.INF
 var _last_editor_viewport_camera_position := Vector3.INF
+var _picking_sculpt_height := false
+var _sculpt_slope_start := Vector3.INF
 
 
 func _enter_tree() -> void:
 	var icon := get_editor_interface().get_base_control().get_theme_icon("Node3D", "EditorIcons")
 	add_custom_type(TERRAIN_TYPE_NAME, TERRAIN_BASE_TYPE, TERRAIN_SCRIPT, icon)
+	add_custom_type(QUERY_TYPE_NAME, QUERY_BASE_TYPE, QUERY_SCRIPT, icon)
 	_editor_ui = EDITOR_UI_SCRIPT.new()
 	_editor_ui.setup(self)
 	_editor_ui.tool_selected.connect(_on_editor_tool_selected)
@@ -30,11 +36,13 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	_finish_active_brush_stroke()
 	if _editor_ui != null:
 		_editor_ui.cleanup()
 		_editor_ui = null
 	set_process(false)
 	_clear_brush_preview()
+	remove_custom_type(QUERY_TYPE_NAME)
 	remove_custom_type(TERRAIN_TYPE_NAME)
 
 
@@ -43,6 +51,7 @@ func _handles(object: Object) -> bool:
 
 
 func _edit(object: Object) -> void:
+	_finish_active_brush_stroke()
 	_edited_terrain = object if _handles(object) else null
 	_brush_pressed = false
 	_last_stamp_position = Vector3.INF
@@ -57,12 +66,19 @@ func _edit(object: Object) -> void:
 func _on_editor_tool_selected(tool_id: int) -> void:
 	if _edited_terrain == null:
 		return
+	_finish_active_brush_stroke()
 	_brush_pressed = false
 	_last_stamp_position = Vector3.INF
+	_picking_sculpt_height = false
+	_sculpt_slope_start = Vector3.INF
 	match tool_id:
 		EDITOR_UI_SCRIPT.TOOL_NONE:
 			_edited_terrain.editor_brush_enabled = false
 			_hide_brush_preview()
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_RAISE, EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER, EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH, EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT, EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			_edited_terrain.editor_brush_enabled = true
+			_edited_terrain.editor_brush_mode = tool_id
+			_edited_terrain.sculpt_enabled = true
 		EDITOR_UI_SCRIPT.TOOL_PAINT:
 			_edited_terrain.editor_brush_enabled = true
 			_edited_terrain.editor_brush_mode = EDITOR_UI_SCRIPT.TOOL_PAINT
@@ -110,6 +126,12 @@ func _on_editor_action_requested(action_id: int) -> void:
 			_edited_terrain.setup_preview_lighting()
 		EDITOR_UI_SCRIPT.ACTION_SETUP_FOCUS_CAMERA:
 			_edited_terrain.setup_texture_focus_camera()
+		EDITOR_UI_SCRIPT.ACTION_SETUP_NAVIGATION:
+			_edited_terrain.setup_navigation_region()
+		EDITOR_UI_SCRIPT.ACTION_BAKE_NAVIGATION_MESH:
+			_edited_terrain.bake_navigation_mesh()
+		EDITOR_UI_SCRIPT.ACTION_BAKE_OCCLUDER:
+			_edited_terrain.bake_terrain_occluder()
 		EDITOR_UI_SCRIPT.ACTION_GENERATE_COLLISION:
 			_edited_terrain.generate_collision_for_existing_terrain()
 		EDITOR_UI_SCRIPT.ACTION_REMOVE_COLLISION:
@@ -120,6 +142,16 @@ func _on_editor_action_requested(action_id: int) -> void:
 			_edited_terrain.rebuild_region_data()
 		EDITOR_UI_SCRIPT.ACTION_CLEAR_PAINTED_MASKS:
 			_edited_terrain.clear_painted_material_masks()
+		EDITOR_UI_SCRIPT.ACTION_CLEAR_SCULPTED_HEIGHTS:
+			_edited_terrain.clear_sculpted_heights()
+		EDITOR_UI_SCRIPT.ACTION_EXPORT_SCULPTED_HEIGHTMAP:
+			_edited_terrain.export_heightmap()
+		EDITOR_UI_SCRIPT.ACTION_REBUILD_SCULPTED_CHUNKS:
+			_edited_terrain.rebuild_sculpted_chunks()
+		EDITOR_UI_SCRIPT.ACTION_PICK_SCULPT_HEIGHT:
+			_picking_sculpt_height = true
+		EDITOR_UI_SCRIPT.ACTION_CLEAR_SCULPT_SLOPE:
+			_sculpt_slope_start = Vector3.INF
 		EDITOR_UI_SCRIPT.ACTION_GENERATE_SCATTER:
 			_edited_terrain.generate_scatter()
 		EDITOR_UI_SCRIPT.ACTION_CLEAR_SCATTER:
@@ -193,12 +225,22 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 		var mouse_button := event as InputEventMouseButton
 		if mouse_button.alt_pressed or mouse_button.button_index != MOUSE_BUTTON_LEFT:
 			return EditorPlugin.AFTER_GUI_INPUT_PASS
+		if not mouse_button.pressed and _brush_pressed:
+			_finish_active_brush_stroke()
 		var hit_position = _raycast_terrain(viewport_camera, mouse_button.position)
 		if hit_position == null:
 			_hide_brush_preview()
 			_brush_pressed = false
 			return EditorPlugin.AFTER_GUI_INPUT_PASS
 		_update_brush_preview(hit_position)
+		if mouse_button.pressed and _picking_sculpt_height:
+			_edited_terrain.sculpt_target_height = _edited_terrain.pick_sculpt_height(hit_position)
+			_picking_sculpt_height = false
+			_refresh_editor_ui()
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
+		if mouse_button.pressed and int(_edited_terrain.editor_brush_mode) == EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			_apply_slope_point(hit_position)
+			return EditorPlugin.AFTER_GUI_INPUT_STOP
 		_brush_pressed = mouse_button.pressed
 		if mouse_button.pressed:
 			_stamp_brush(hit_position, true)
@@ -225,10 +267,12 @@ func _is_brush_active() -> bool:
 	if _edited_terrain == null or not bool(_edited_terrain.editor_brush_enabled):
 		return false
 	match int(_edited_terrain.editor_brush_mode):
-		0:
+		EDITOR_UI_SCRIPT.TOOL_PAINT:
 			return bool(_edited_terrain.paint_enabled)
-		1, 2:
+		EDITOR_UI_SCRIPT.TOOL_SCATTER_ADD, EDITOR_UI_SCRIPT.TOOL_SCATTER_ERASE:
 			return bool(_edited_terrain.scatter_enabled)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_RAISE, EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER, EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH, EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT, EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			return bool(_edited_terrain.sculpt_enabled)
 		_:
 			return false
 
@@ -253,6 +297,14 @@ func _stamp_brush(world_position: Vector3, force: bool) -> void:
 
 func _apply_brush_at(world_position: Vector3) -> void:
 	match int(_edited_terrain.editor_brush_mode):
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_RAISE:
+			_edited_terrain.sculpt_height_at(world_position, float(_edited_terrain.sculpt_radius), float(_edited_terrain.sculpt_strength), 0, int(_edited_terrain.sculpt_brush_mask))
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER:
+			_edited_terrain.sculpt_height_at(world_position, float(_edited_terrain.sculpt_radius), float(_edited_terrain.sculpt_strength), 1, int(_edited_terrain.sculpt_brush_mask))
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH:
+			_edited_terrain.sculpt_height_at(world_position, float(_edited_terrain.sculpt_radius), float(_edited_terrain.sculpt_strength), 2, int(_edited_terrain.sculpt_brush_mask))
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT:
+			_edited_terrain.sculpt_height_at(world_position, float(_edited_terrain.sculpt_radius), float(_edited_terrain.sculpt_strength), 3, int(_edited_terrain.sculpt_brush_mask))
 		0:
 			_edited_terrain.paint_material_mask(
 				world_position,
@@ -272,12 +324,68 @@ func _apply_brush_at(world_position: Vector3) -> void:
 			_edited_terrain.erase_scatter_brush(world_position, float(_edited_terrain.scatter_brush_radius))
 
 
+func _apply_slope_point(world_position: Vector3) -> void:
+	var local_position: Vector3 = _edited_terrain.to_local(world_position)
+	if not _sculpt_slope_start.is_finite():
+		_sculpt_slope_start = local_position
+		_last_stamp_position = Vector3.INF
+		return
+	var start_position: Vector3 = _sculpt_slope_start
+	var end_position: Vector3 = local_position
+	var start_2d := Vector2(start_position.x, start_position.z)
+	var end_2d := Vector2(end_position.x, end_position.z)
+	var radius := maxf(float(_edited_terrain.sculpt_radius), 0.01)
+	var step_size := maxf(radius * 0.2, 0.1)
+	var step_count := maxi(1, ceili(start_2d.distance_to(end_2d) / step_size))
+	var options := {
+		"slope_start": start_position,
+		"slope_end": end_position,
+	}
+	for step in range(step_count + 1):
+		var t := float(step) / float(step_count)
+		var stamp_local: Vector3 = start_position.lerp(end_position, t)
+		_edited_terrain.sculpt_height_at(
+			_edited_terrain.to_global(stamp_local),
+			radius,
+			float(_edited_terrain.sculpt_strength),
+			4,
+			int(_edited_terrain.sculpt_brush_mask),
+			options
+		)
+	_sculpt_slope_start = Vector3.INF
+	_last_stamp_position = Vector3.INF
+	_edited_terrain.commit_sculpt_edits(true, false)
+
+
 func _get_brush_radius() -> float:
 	if _edited_terrain == null:
 		return 1.0
-	if int(_edited_terrain.editor_brush_mode) == 0:
-		return maxf(float(_edited_terrain.paint_radius), 0.01)
-	return maxf(float(_edited_terrain.scatter_brush_radius), 0.01)
+	match int(_edited_terrain.editor_brush_mode):
+		EDITOR_UI_SCRIPT.TOOL_PAINT:
+			return maxf(float(_edited_terrain.paint_radius), 0.01)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_RAISE, EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER, EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH, EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT, EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			return maxf(float(_edited_terrain.sculpt_radius), 0.01)
+		_:
+			return maxf(float(_edited_terrain.scatter_brush_radius), 0.01)
+
+
+func _finish_active_brush_stroke() -> void:
+	if _edited_terrain == null:
+		return
+	if _current_tool_is_sculpt():
+		_edited_terrain.commit_sculpt_edits(true, false)
+	_brush_pressed = false
+	_last_stamp_position = Vector3.INF
+
+
+func _current_tool_is_sculpt() -> bool:
+	if _edited_terrain == null:
+		return false
+	match int(_edited_terrain.editor_brush_mode):
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_RAISE, EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER, EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH, EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT, EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			return true
+		_:
+			return false
 
 
 func _raycast_terrain(viewport_camera: Camera3D, screen_position: Vector2):
@@ -314,9 +422,18 @@ func _update_brush_preview(world_position: Vector3) -> void:
 	if _brush_preview == null:
 		return
 	_brush_preview.visible = true
-	_brush_preview.global_position = _edited_terrain.project_position_to_terrain(world_position, 0.06)
-	_brush_preview.mesh = _create_brush_ring_mesh(_get_brush_radius())
+	_brush_preview.transform = Transform3D.IDENTITY
+	_brush_preview.mesh = _create_terrain_brush_ring_mesh(world_position, _get_brush_radius())
 	_update_brush_material()
+
+
+func _basis_from_normal(normal: Vector3) -> Basis:
+	var tangent := normal.cross(Vector3.FORWARD)
+	if tangent.length_squared() <= 0.0001:
+		tangent = normal.cross(Vector3.RIGHT)
+	tangent = tangent.normalized()
+	var bitangent := tangent.cross(normal).normalized()
+	return Basis(tangent, normal, bitangent).orthonormalized()
 
 
 func _ensure_brush_preview() -> void:
@@ -354,21 +471,68 @@ func _create_brush_ring_mesh(radius: float) -> Mesh:
 	return mesh
 
 
+func _create_terrain_brush_ring_mesh(world_position: Vector3, radius: float) -> Mesh:
+	var vertices := PackedVector3Array()
+	var inner_radius := maxf(radius - maxf(radius * 0.035, 0.08), radius * 0.85)
+	var indices := PackedInt32Array()
+	for index in BRUSH_SEGMENTS:
+		var angle_a := TAU * float(index) / float(BRUSH_SEGMENTS)
+		var angle_b := TAU * float(index + 1) / float(BRUSH_SEGMENTS)
+		var base_index := vertices.size()
+		vertices.append(_sample_brush_preview_vertex(world_position, angle_a, radius))
+		vertices.append(_sample_brush_preview_vertex(world_position, angle_b, radius))
+		vertices.append(_sample_brush_preview_vertex(world_position, angle_a, inner_radius))
+		vertices.append(_sample_brush_preview_vertex(world_position, angle_b, inner_radius))
+		indices.append_array(PackedInt32Array([base_index, base_index + 1, base_index + 2, base_index + 1, base_index + 3, base_index + 2]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _sample_brush_preview_vertex(center_world: Vector3, angle: float, radius: float) -> Vector3:
+	var sample_world := Vector3(
+		center_world.x + cos(angle) * radius,
+		center_world.y,
+		center_world.z + sin(angle) * radius
+	)
+	var terrain_position: Vector3 = _edited_terrain.project_position_to_terrain(sample_world, 0.0)
+	var terrain_normal: Vector3 = _edited_terrain.get_normal_at(terrain_position)
+	if not terrain_normal.is_finite() or terrain_normal.length_squared() <= 0.0001:
+		terrain_normal = Vector3.UP
+	var preview_lift := maxf(radius * 0.012, 0.06)
+	terrain_position += terrain_normal.normalized() * preview_lift
+	return _edited_terrain.to_local(terrain_position)
+
+
 func _update_brush_material() -> void:
 	if _brush_material == null:
 		_brush_material = StandardMaterial3D.new()
 		_brush_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_brush_material.no_depth_test = true
+		_brush_material.no_depth_test = false
 		_brush_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_brush_material.emission_enabled = true
 		_brush_material.emission_energy_multiplier = 1.4
 	match int(_edited_terrain.editor_brush_mode):
-		0:
+		EDITOR_UI_SCRIPT.TOOL_PAINT:
 			_brush_material.albedo_color = Color(0.15, 0.55, 1.0, 0.95)
-		1:
+		EDITOR_UI_SCRIPT.TOOL_SCATTER_ADD:
 			_brush_material.albedo_color = Color(0.2, 1.0, 0.25, 0.95)
-		2:
+		EDITOR_UI_SCRIPT.TOOL_SCATTER_ERASE:
 			_brush_material.albedo_color = Color(1.0, 0.18, 0.12, 0.95)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_LOWER:
+			_brush_material.albedo_color = Color(1.0, 0.45, 0.12, 0.95)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_SMOOTH:
+			_brush_material.albedo_color = Color(0.65, 0.65, 1.0, 0.95)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_HEIGHT:
+			_brush_material.albedo_color = Color(0.95, 0.75, 0.2, 0.95)
+		EDITOR_UI_SCRIPT.TOOL_SCULPT_SLOPE:
+			_brush_material.albedo_color = Color(0.95, 0.35, 1.0, 0.95)
+		_:
+			_brush_material.albedo_color = Color(0.35, 0.8, 1.0, 0.95)
 	_brush_material.emission = _brush_material.albedo_color
 	if _brush_preview != null:
 		_brush_preview.set_surface_override_material(0, _brush_material)

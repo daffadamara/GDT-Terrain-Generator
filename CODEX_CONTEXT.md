@@ -106,9 +106,10 @@ Final output should be explained through three states:
 
 Viewport LOD swaps chunk meshes by distance from the culling/LOD focus. A previous seam fix used vertical edge curtains, but those showed as dark triangular split artifacts on steep terrain. The current fix uses surface stitching:
 
-- Lower LOD meshes skip their coarse outer ring.
-- The outer ring is rebuilt with full-detail border samples.
-- That detailed border is stitched into the coarser interior with regular surface triangles.
+- Lower LOD meshes skip their coarse outer ring and rebuild a full-detail outer perimeter.
+- Corner patches and edge strips are stitched into the coarser interior using fan triangles that share the coarse interior edge rather than duplicate/interpolated vertices.
+- Reduced LOD meshes should have only the real outer perimeter as open boundary edges; internal open edges/T-junctions can show as thin runtime gaps even when chunk-to-chunk heights match.
+- Saved LOD resources should be considered valid only when their `terrain_lod_edge_version` is current and topology checks report zero internal open edges.
 - `TERRAIN_LOD_EDGE_VERSION` in `gdt_terrain_3d.gd` should be incremented when changing LOD seam geometry so old `.res` LOD meshes are rebuilt automatically.
 
 ## Validation Commands
